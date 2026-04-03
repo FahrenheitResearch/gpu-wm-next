@@ -15,6 +15,9 @@ if errorlevel 1 exit /b 1
 "%BUILD%\test_dry_momentum_virtual_rank_equivalence.exe"
 if errorlevel 1 exit /b 1
 
+"%BUILD%\test_dry_momentum_flux.exe"
+if errorlevel 1 exit /b 1
+
 "%BUILD%\test_dry_fastmode_virtual_rank_equivalence.exe"
 if errorlevel 1 exit /b 1
 
@@ -31,6 +34,9 @@ if errorlevel 1 exit /b 1
 if errorlevel 1 exit /b 1
 
 "%BUILD%\test_horizontal_pressure_response.exe"
+if errorlevel 1 exit /b 1
+
+"%BUILD%\test_density_current_evolution.exe"
 if errorlevel 1 exit /b 1
 
 "%BUILD%\test_acoustic_pulse.exe"

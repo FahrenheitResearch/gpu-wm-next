@@ -7,6 +7,7 @@
 #include "gwm/core/cuda_utils.hpp"
 #include "gwm/core/dry_thermo.hpp"
 #include "gwm/dycore/dry_fast_modes.hpp"
+#include "gwm/dycore/dry_momentum_flux.hpp"
 #include "gwm/dycore/dry_pressure_gradient.hpp"
 
 namespace gwm::dycore {
@@ -367,18 +368,39 @@ void compute_slow_tendencies(
   std::vector<state::Field3D<real>> rho_fields;
   std::vector<state::Field3D<real>> rho_theta_fields;
   std::vector<state::Field3D<real>> pressure_fields;
+  std::vector<state::FaceField<real>> mom_u_fields;
+  std::vector<state::FaceField<real>> mom_v_fields;
+  std::vector<state::FaceField<real>> mom_w_fields;
   rho_fields.reserve(states.size());
   rho_theta_fields.reserve(states.size());
   pressure_fields.reserve(states.size());
+  mom_u_fields.reserve(states.size());
+  mom_v_fields.reserve(states.size());
+  mom_w_fields.reserve(states.size());
   for (const auto& state : states) {
     rho_fields.push_back(state.rho_d.clone_empty_like("_rho_halo"));
     rho_fields.back().copy_all_from(state.rho_d);
     rho_theta_fields.push_back(state.rho_theta_m.clone_empty_like("_theta_halo"));
     rho_theta_fields.back().copy_all_from(state.rho_theta_m);
+    mom_u_fields.emplace_back(state.rho_d.nx(), state.rho_d.ny(), state.rho_d.nz(),
+                              state.rho_d.halo(), state::FaceOrientation::X,
+                              "mom_u_halo");
+    mom_u_fields.back().storage().copy_all_from(state.mom_u.storage());
+    mom_v_fields.emplace_back(state.rho_d.nx(), state.rho_d.ny(), state.rho_d.nz(),
+                              state.rho_d.halo(), state::FaceOrientation::Y,
+                              "mom_v_halo");
+    mom_v_fields.back().storage().copy_all_from(state.mom_v.storage());
+    mom_w_fields.emplace_back(state.rho_d.nx(), state.rho_d.ny(), state.rho_d.nz(),
+                              state.rho_d.halo(), state::FaceOrientation::Z,
+                              "mom_w_halo");
+    mom_w_fields.back().storage().copy_all_from(state.mom_w.storage());
   }
 
   comm::HaloExchange::exchange_scalar(rho_fields, layout);
   comm::HaloExchange::exchange_scalar(rho_theta_fields, layout);
+  comm::HaloExchange::exchange_face(mom_u_fields, layout);
+  comm::HaloExchange::exchange_face(mom_v_fields, layout);
+  comm::HaloExchange::exchange_face(mom_w_fields, layout);
   compute_dry_pressure_fields(rho_fields, rho_theta_fields, pressure_fields);
 
   std::vector<double> theta_sum(static_cast<std::size_t>(metrics.nz), 0.0);
@@ -423,6 +445,9 @@ void compute_slow_tendencies(
         static_cast<real>(metrics.dx), static_cast<real>(metrics.dy), dz);
     GWM_CUDA_CHECK(cudaGetLastError());
   }
+
+  add_dry_momentum_flux_tendencies(rho_fields, mom_u_fields, mom_v_fields,
+                                   mom_w_fields, layout, metrics, out);
 
   add_horizontal_pressure_gradient_tendencies(pressure_fields, layout, metrics,
                                               out);

@@ -19,6 +19,8 @@
 - dry conserved-state bundle (`rho_d`, `rho_d*theta_m`, face momentum)
 - hydrostatic-rest placeholder regression
 - EOS-consistent dry pressure reconstruction from conservative state
+- first-order conservative slow momentum-flux transport on the flat-grid dry
+  core
 - face-halo exchange for C-grid momentum fields
 - horizontal pressure-gradient momentum coupling for `mom_u` and `mom_v`
 - local split-explicit acoustic subcycle with perturbation-form vertical update
@@ -34,9 +36,8 @@
 - native idealized dry driver plus casebuilder wrapper for idealized YAML cases
 - next:
   - real MPI-backed halo exchange path once local/cluster MPI is available
-  - nonlinear momentum-flux transport and additional dry-wave regressions
-  - mountain-wave or density-current evolving dry regression with the fast path
-    active
+  - terrain/hybrid-metric-aware dry operators on top of the now fuller dry core
+  - meaningful mountain-wave dry regression with the fast path active
 
 ## stage2_moist
 

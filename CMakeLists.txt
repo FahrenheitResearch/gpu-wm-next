@@ -37,6 +37,7 @@ add_library(
   src/dycore/dry_core.cu
   src/dycore/dry_diagnostics.cpp
   src/dycore/dry_fast_modes.cu
+  src/dycore/dry_momentum_flux.cu
   src/dycore/dry_pressure_gradient.cu
   src/dycore/idealized_cases.cpp
   src/dycore/dry_transport.cu
@@ -84,6 +85,7 @@ gwm_add_test(test_mpi_runtime tests/unit/test_mpi_runtime.cpp)
 gwm_add_test(test_source_catalog tests/unit/test_source_catalog.cpp)
 gwm_add_test(test_dry_diagnostics tests/unit/test_dry_diagnostics.cpp)
 gwm_add_test(test_dry_fast_modes tests/unit/test_dry_fast_modes.cpp)
+gwm_add_test(test_dry_momentum_flux tests/unit/test_dry_momentum_flux.cpp)
 gwm_add_test(test_dry_pressure_gradient tests/unit/test_dry_pressure_gradient.cpp)
 gwm_add_test(
   test_idealized_domain_builder
@@ -124,6 +126,10 @@ gwm_add_test(
 gwm_add_test(
   test_horizontal_pressure_response
   tests/regression/test_horizontal_pressure_response.cpp
+)
+gwm_add_test(
+  test_density_current_evolution
+  tests/regression/test_density_current_evolution.cpp
 )
 gwm_add_test(
   test_acoustic_pulse

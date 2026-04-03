@@ -44,6 +44,8 @@ Current implementation status:
   - local split-explicit fast-mode acoustic subcycle
   - EOS-consistent dry pressure reconstruction from `rho_d` and
     `rho_d*theta_m`
+  - conservative first-order slow momentum-flux transport for `mom_u`,
+    `mom_v`, and `mom_w`
   - face-halo exchange for C-grid momentum fields
   - horizontal pressure-gradient momentum coupling for `mom_u` and `mom_v`
   - perturbation-form vertical fast-mode treatment plus buoyancy-driven
@@ -51,6 +53,8 @@ Current implementation status:
   - hydrostatic-rest and dry-bundle regression binaries
   - buoyancy-response and horizontal-pressure-response regressions for
     warm-bubble and density-current style forcing
+  - density-current evolution regression on the pressure-coupled fast/slow dry
+    core
   - acoustic-pulse regression and fast-mode virtual-rank equivalence tests
   - idealized dry state initializers for warm-bubble, density-current, and
     mountain-wave background cases

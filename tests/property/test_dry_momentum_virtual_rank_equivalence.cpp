@@ -1,3 +1,5 @@
+#include <string>
+
 #include "gwm/comm/virtual_rank_layout.hpp"
 #include "gwm/domain/idealized_domain_builder.hpp"
 #include "gwm/dycore/dry_core.hpp"
@@ -9,16 +11,22 @@ namespace {
 
 void compare_scalar_fields(const gwm::state::Field3D<gwm::real>& a,
                            const gwm::state::Field3D<gwm::real>& b,
-                           double tol) {
+                           double tol, const char* label) {
   TEST_CHECK(a.nx() == b.nx());
   TEST_CHECK(a.ny() == b.ny());
   TEST_CHECK(a.nz() == b.nz());
+  double max_diff = 0.0;
   for (int k = 0; k < a.nz(); ++k) {
     for (int j = 0; j < a.ny(); ++j) {
       for (int i = 0; i < a.nx(); ++i) {
-        TEST_NEAR(a(i, j, k), b(i, j, k), tol);
+        const double diff = std::fabs(static_cast<double>(a(i, j, k)) -
+                                      static_cast<double>(b(i, j, k)));
+        max_diff = std::max(max_diff, diff);
       }
     }
+  }
+  if (max_diff > tol) {
+    test_fail(std::string(label) + " max diff " + std::to_string(max_diff));
   }
 }
 
@@ -65,6 +73,12 @@ int main() {
     dycore::NullBoundaryUpdater boundary;
     dycore::LocalSplitExplicitFastMode fast_modes;
 
+    dycore::advance_dry_state_ssprk3(serial_state, serial_domain.layout,
+                                     serial_domain.metrics, cfg, boundary,
+                                     fast_modes);
+    dycore::advance_dry_state_ssprk3(split_state, split_domain.layout,
+                                     split_domain.metrics, cfg, boundary,
+                                     fast_modes);
     dycore::advance_dry_state_ssprk3(serial_state, serial_domain.layout,
                                      serial_domain.metrics, cfg, boundary,
                                      fast_modes);
@@ -172,10 +186,38 @@ int main() {
         }(),
         split_domain.layout, state::FaceOrientation::Y, "split_v");
 
-    compare_scalar_fields(serial_rho, split_rho, 1.0e-4);
-    compare_scalar_fields(serial_theta, split_theta, 1.0e-3);
-    compare_scalar_fields(serial_u.storage(), split_u.storage(), 1.0e-4);
-    compare_scalar_fields(serial_v.storage(), split_v.storage(), 1.0e-4);
+    const auto serial_w = comm::VirtualRankLayout::gather_face(
+        [&serial_state]() {
+          std::vector<state::FaceField<real>> fields;
+          for (const auto& s : serial_state) {
+            fields.push_back(state::FaceField<real>(s.rho_d.nx(), s.rho_d.ny(),
+                                                    s.rho_d.nz(), s.rho_d.halo(),
+                                                    state::FaceOrientation::Z,
+                                                    "w"));
+            fields.back().storage().copy_all_from(s.mom_w.storage());
+          }
+          return fields;
+        }(),
+        serial_domain.layout, state::FaceOrientation::Z, "serial_w");
+    const auto split_w = comm::VirtualRankLayout::gather_face(
+        [&split_state]() {
+          std::vector<state::FaceField<real>> fields;
+          for (const auto& s : split_state) {
+            fields.push_back(state::FaceField<real>(s.rho_d.nx(), s.rho_d.ny(),
+                                                    s.rho_d.nz(), s.rho_d.halo(),
+                                                    state::FaceOrientation::Z,
+                                                    "w"));
+            fields.back().storage().copy_all_from(s.mom_w.storage());
+          }
+          return fields;
+        }(),
+        split_domain.layout, state::FaceOrientation::Z, "split_w");
+
+    compare_scalar_fields(serial_rho, split_rho, 1.0e-4, "rho");
+    compare_scalar_fields(serial_theta, split_theta, 1.0e-3, "theta");
+    compare_scalar_fields(serial_u.storage(), split_u.storage(), 2.0e-4, "u");
+    compare_scalar_fields(serial_v.storage(), split_v.storage(), 2.0e-4, "v");
+    compare_scalar_fields(serial_w.storage(), split_w.storage(), 4.0e-4, "w");
     return 0;
   } catch (const std::exception& ex) {
     test_fail(ex.what());

@@ -10,6 +10,8 @@ structured staggered grid.
 - slow tendencies are integrated with SSPRK3
 - fast modes use a local split-explicit acoustic subcycle
 - transport uses halo-aware face-flux differences
+- slow dry dynamics now include first-order nonlinear momentum-flux transport
+  on the native face fields
 - thermal perturbations currently project onto vertical momentum through a
   buoyancy-only slow tendency
 - horizontal pressure gradients now project onto `mom_u` and `mom_v` through
@@ -27,6 +29,8 @@ structured staggered grid.
 - symmetric pressure perturbations must generate symmetric horizontal momentum
   response
 - small acoustic pulses must remain symmetric and mass-conservative
+- short density-current evolution must remain finite and approximately
+  symmetric
 
 ## Assumptions for stability / consistency
 
@@ -40,6 +44,7 @@ structured staggered grid.
 - `tests/regression/test_hydrostatic_rest.cpp`
 - `tests/regression/test_buoyancy_response.cpp`
 - `tests/regression/test_horizontal_pressure_response.cpp`
+- `tests/regression/test_density_current_evolution.cpp`
 - `tests/regression/test_acoustic_pulse.cpp`
 - `tests/property/test_dry_momentum_virtual_rank_equivalence.cpp`
 - `tests/property/test_dry_fastmode_virtual_rank_equivalence.cpp`
