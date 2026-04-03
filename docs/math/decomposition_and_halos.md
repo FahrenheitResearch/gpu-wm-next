@@ -28,6 +28,11 @@ operator meaning under 2D horizontal decomposition.
 ## Test mapping
 
 - `tests/unit/test_halo_exchange.cpp`
+- `tests/unit/test_face_halo_exchange.cpp`
 - `tests/unit/test_scalar_halo_buffers.cpp`
 - `tests/unit/test_mpi_runtime.cpp`
 - `tests/property/test_virtual_rank_equivalence.cpp`
+- `tests/property/test_dry_virtual_rank_equivalence.cpp`
+- `tests/property/test_dry_momentum_virtual_rank_equivalence.cpp`
+- `tests/property/test_dry_fastmode_virtual_rank_equivalence.cpp`
+- `tests/property/test_terrain_virtual_rank_equivalence.cpp`

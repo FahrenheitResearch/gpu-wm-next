@@ -56,6 +56,10 @@ Current implementation status:
   - density-current evolution regression on the pressure-coupled fast/slow dry
     core
   - acoustic-pulse regression and fast-mode virtual-rank equivalence tests
+  - terrain/hybrid-height metric-aware dry operators with flat-limit coverage
+  - terrain hydrostatic-rest and mountain-wave evolution regressions
+  - verified additive composition of slow momentum sources
+  - fixed mountain-wave conserved-momentum initialization
   - idealized dry state initializers for warm-bubble, density-current, and
     mountain-wave background cases
   - dry diagnostics summary helpers for mass/theta/momentum/extrema
@@ -73,3 +77,10 @@ Windows note:
   `scripts/build_local_windows.ps1`.
 - `scripts/run_gate_b_windows.cmd` remains available as a targeted Stage 1 dry
   regression wrapper.
+
+Current checkpoint:
+
+- `12aeedb` passes `31/31` local tests.
+- The dry core is now terrain-aware and internally consistent enough that the
+  likely next bounded milestone is real MPI-backed halo exchange against the
+  existing virtual-rank oracle.

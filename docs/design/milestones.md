@@ -30,15 +30,23 @@
 - idealized dry case library for warm-bubble / density-current / mountain-wave
   background states
 - topography-aware idealized domain builder support
+- terrain/hybrid-height metric-aware dry operators threaded through the fast and
+  slow dry core
+- terrain-aware hydrostatic-rest and mountain-wave dry regressions with the fast
+  path active
+- fixed slow-source composition semantics across momentum-flux,
+  pressure-gradient, and buoyancy tendencies
+- fixed mountain-wave background-flow initialization into conserved face
+  momentum
 - buoyancy-response regression for warm-bubble / density-current dry evolution
 - horizontal-pressure-response regression for centered thermal perturbations
 - dry diagnostics summary helpers
 - native idealized dry driver plus casebuilder wrapper for idealized YAML cases
 - next:
-  - real MPI-backed halo exchange path once local/cluster MPI is available
-  - terrain/hybrid-metric-aware dry operators on top of the now fuller dry core
-  - terrain hydrostatic-rest and mountain-wave dry regressions with the fast
-    path active
+  - real MPI-backed halo exchange path against the existing virtual-rank oracle
+  - keep `comm/*` as the only MPI/backend-aware runtime layer
+  - keep surface/land spine and ingest/boundary-cache work gated behind the
+    current milestone decision
 
 ## stage2_moist
 
