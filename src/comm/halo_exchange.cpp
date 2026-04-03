@@ -238,8 +238,8 @@ void HaloExchange::exchange_scalar(
   }
 }
 
-void HaloExchange::exchange_face(
-    std::vector<state::FaceField<real>>& fields,
+void exchange_face_impl(
+    const std::vector<state::FaceField<real>*>& fields,
     const std::vector<domain::SubdomainDescriptor>& layout) {
   gwm::require(fields.size() == layout.size(),
                "Field/layout size mismatch in exchange_face");
@@ -247,24 +247,25 @@ void HaloExchange::exchange_face(
     return;
   }
 
-  const auto reference_orientation = fields.front().orientation();
+  const auto reference_orientation = fields.front()->orientation();
   std::vector<ScalarHaloExchangePlan> plans;
   plans.reserve(layout.size());
   std::vector<ScalarHaloBuffers> buffers;
   buffers.reserve(layout.size());
   for (std::size_t n = 0; n < layout.size(); ++n) {
-    gwm::require(fields[n].orientation() == reference_orientation,
+    gwm::require(fields[n] != nullptr, "Null field pointer in exchange_face");
+    gwm::require(fields[n]->orientation() == reference_orientation,
                  "Face orientation mismatch in exchange_face");
     plans.push_back(make_scalar_halo_exchange_plan(layout, layout[n]));
-    const auto shape = make_face_halo_shape(fields[n], layout[n]);
+    const auto shape = make_face_halo_shape(*fields[n], layout[n]);
     ScalarHaloExchangePlan plan = plans.back();
     plan.x_face_count = shape.x_face_count;
     plan.y_face_count = shape.y_face_count;
-    buffers.push_back(allocate_scalar_buffers(plan));
+    buffers.push_back(HaloExchange::allocate_scalar_buffers(plan));
   }
 
   for (std::size_t n = 0; n < layout.size(); ++n) {
-    pack_face_x_faces(fields[n], layout[n], buffers[n]);
+    pack_face_x_faces(*fields[n], layout[n], buffers[n]);
   }
   for (std::size_t n = 0; n < layout.size(); ++n) {
     const auto& neighbors = plans[n].neighbors;
@@ -276,11 +277,11 @@ void HaloExchange::exchange_face(
       buffers[n].east_recv =
           buffers[static_cast<std::size_t>(neighbors.east)].west_send;
     }
-    unpack_face_x_faces(fields[n], layout[n], buffers[n]);
+    unpack_face_x_faces(*fields[n], layout[n], buffers[n]);
   }
 
   for (std::size_t n = 0; n < layout.size(); ++n) {
-    pack_face_y_faces(fields[n], layout[n], buffers[n]);
+    pack_face_y_faces(*fields[n], layout[n], buffers[n]);
   }
   for (std::size_t n = 0; n < layout.size(); ++n) {
     const auto& neighbors = plans[n].neighbors;
@@ -292,8 +293,25 @@ void HaloExchange::exchange_face(
       buffers[n].north_recv =
           buffers[static_cast<std::size_t>(neighbors.north)].south_send;
     }
-    unpack_face_y_faces(fields[n], layout[n], buffers[n]);
+    unpack_face_y_faces(*fields[n], layout[n], buffers[n]);
   }
+}
+
+void HaloExchange::exchange_face(
+    std::vector<state::FaceField<real>>& fields,
+    const std::vector<domain::SubdomainDescriptor>& layout) {
+  std::vector<state::FaceField<real>*> field_ptrs;
+  field_ptrs.reserve(fields.size());
+  for (auto& field : fields) {
+    field_ptrs.push_back(&field);
+  }
+  exchange_face_impl(field_ptrs, layout);
+}
+
+void HaloExchange::exchange_face(
+    const std::vector<state::FaceField<real>*>& fields,
+    const std::vector<domain::SubdomainDescriptor>& layout) {
+  exchange_face_impl(fields, layout);
 }
 
 }  // namespace gwm::comm

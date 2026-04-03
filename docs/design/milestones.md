@@ -21,6 +21,7 @@
 - EOS-consistent dry pressure reconstruction from conservative state
 - face-halo exchange for C-grid momentum fields
 - horizontal pressure-gradient momentum coupling for `mom_u` and `mom_v`
+- local split-explicit acoustic subcycle with perturbation-form vertical update
 - buoyancy-driven vertical-momentum response for thermal perturbations
 - cartesian-neighbor / face-buffer comm contract
 - MPI runtime boundary stub with clean no-MPI behavior
@@ -33,9 +34,9 @@
 - native idealized dry driver plus casebuilder wrapper for idealized YAML cases
 - next:
   - real MPI-backed halo exchange path once local/cluster MPI is available
-  - split-explicit fast-mode implementation on top of the now pressure-coupled
-    dry core
   - nonlinear momentum-flux transport and additional dry-wave regressions
+  - mountain-wave or density-current evolving dry regression with the fast path
+    active
 
 ## stage2_moist
 

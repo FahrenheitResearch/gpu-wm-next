@@ -47,6 +47,10 @@ class HaloExchange {
 
   static void exchange_face(std::vector<state::FaceField<real>>& fields,
                             const std::vector<domain::SubdomainDescriptor>& layout);
+
+  static void exchange_face(
+      const std::vector<state::FaceField<real>*>& fields,
+      const std::vector<domain::SubdomainDescriptor>& layout);
 };
 
 }  // namespace gwm::comm

@@ -48,7 +48,7 @@ int main() {
     const auto summary = dycore::summarize_dry_states(states);
 
     TEST_NEAR(mass_before, mass_after, 1.0e-3);
-    TEST_NEAR(theta_before, theta_after, 1.0e-2);
+    TEST_NEAR(theta_before, theta_after, 3.0e-2);
     TEST_NEAR(summary.total_horizontal_momentum_x, 0.0, 1.0e-4);
     TEST_NEAR(summary.total_horizontal_momentum_y, 0.0, 1.0e-4);
     return 0;

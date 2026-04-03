@@ -41,16 +41,17 @@ Current implementation status:
   - topography-aware idealized domain builder support
   - halo-aware dry conserved-state bundle
   - SSPRK3 dry-state scaffold
-  - local split-explicit fast-mode interface
+  - local split-explicit fast-mode acoustic subcycle
   - EOS-consistent dry pressure reconstruction from `rho_d` and
     `rho_d*theta_m`
   - face-halo exchange for C-grid momentum fields
   - horizontal pressure-gradient momentum coupling for `mom_u` and `mom_v`
-  - buoyancy-driven vertical-momentum slow tendency for thermal perturbation
-    response in `mom_w`
+  - perturbation-form vertical fast-mode treatment plus buoyancy-driven
+    vertical-momentum slow tendency in `mom_w`
   - hydrostatic-rest and dry-bundle regression binaries
   - buoyancy-response and horizontal-pressure-response regressions for
     warm-bubble and density-current style forcing
+  - acoustic-pulse regression and fast-mode virtual-rank equivalence tests
   - idealized dry state initializers for warm-bubble, density-current, and
     mountain-wave background cases
   - dry diagnostics summary helpers for mass/theta/momentum/extrema

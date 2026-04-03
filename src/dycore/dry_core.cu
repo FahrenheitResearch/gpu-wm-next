@@ -6,6 +6,7 @@
 #include "gwm/comm/halo_exchange.hpp"
 #include "gwm/core/cuda_utils.hpp"
 #include "gwm/core/dry_thermo.hpp"
+#include "gwm/dycore/dry_fast_modes.hpp"
 #include "gwm/dycore/dry_pressure_gradient.hpp"
 
 namespace gwm::dycore {
@@ -290,9 +291,10 @@ void NullBoundaryUpdater::apply(
     real /*sim_time*/) {}
 
 void LocalSplitExplicitFastMode::apply(
-    std::vector<DryState>& /*states*/,
-    const std::vector<domain::SubdomainDescriptor>& /*layout*/,
-    const domain::GridMetrics& /*metrics*/, const DryStepperConfig& /*config*/) {
+    std::vector<DryState>& states,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics, const DryStepperConfig& config) {
+  apply_local_split_explicit_fast_modes(states, layout, metrics, config);
 }
 
 std::vector<DryState> make_constant_dry_state(
