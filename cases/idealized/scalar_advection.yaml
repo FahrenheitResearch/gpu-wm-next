@@ -1,0 +1,14 @@
+name: scalar_advection
+description: periodic dry scalar advection regression case
+grid:
+  nx: 32
+  ny: 32
+  nz: 2
+  dx: 1000.0
+  dy: 1000.0
+time:
+  dt: 5.0
+  t_end: 300.0
+transport:
+  u_adv: 15.0
+  v_adv: -5.0

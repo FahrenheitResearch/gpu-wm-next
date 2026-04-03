@@ -1,0 +1,114 @@
+cmake_minimum_required(VERSION 3.27)
+
+project(
+  gpu_wm_next
+  VERSION 0.1.0
+  DESCRIPTION "Fresh-start GPU-first mesoscale weather model scaffold"
+  LANGUAGES CXX CUDA
+)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_STANDARD 20)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+option(GWM_ENABLE_MPI "Enable MPI hooks when MPI is available" ON)
+
+if(NOT CMAKE_CUDA_ARCHITECTURES)
+  set(CMAKE_CUDA_ARCHITECTURES native)
+endif()
+
+include(CTest)
+enable_testing()
+
+find_package(CUDAToolkit REQUIRED)
+find_package(MPI QUIET COMPONENTS CXX)
+
+add_library(
+  gwm_core
+  STATIC
+  src/comm/cartesian_topology.cpp
+  src/comm/virtual_rank_layout.cpp
+  src/comm/halo_exchange.cpp
+  src/comm/mpi_runtime.cpp
+  src/domain/idealized_domain_builder.cpp
+  src/dycore/dry_core.cu
+  src/dycore/dry_diagnostics.cpp
+  src/dycore/idealized_cases.cpp
+  src/dycore/dry_transport.cu
+  src/ingest/source_catalog.cpp
+  src/obsops/screen_obsops.cpp
+)
+
+target_include_directories(gwm_core PUBLIC include)
+target_compile_features(gwm_core PUBLIC cxx_std_20 cuda_std_20)
+target_link_libraries(gwm_core PUBLIC CUDA::cudart)
+set_target_properties(gwm_core PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+
+if(GWM_ENABLE_MPI AND MPI_CXX_FOUND)
+  target_link_libraries(gwm_core PUBLIC MPI::MPI_CXX)
+  target_compile_definitions(gwm_core PUBLIC GWM_HAVE_MPI=1)
+else()
+  target_compile_definitions(gwm_core PUBLIC GWM_HAVE_MPI=0)
+endif()
+
+function(gwm_add_test target)
+  add_executable(${target} ${ARGN})
+  target_link_libraries(${target} PRIVATE gwm_core CUDA::cudart)
+  target_include_directories(${target} PRIVATE tests)
+  if(WIN32)
+    add_test(
+      NAME ${target}
+      COMMAND
+        ${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_test_windows.cmd
+        $<TARGET_FILE:${target}>
+    )
+  else()
+    add_test(NAME ${target} COMMAND ${target})
+  endif()
+endfunction()
+
+add_executable(gwm_idealized_driver src/core/gwm_idealized_driver.cpp)
+target_link_libraries(gwm_idealized_driver PRIVATE gwm_core CUDA::cudart)
+target_compile_features(gwm_idealized_driver PRIVATE cxx_std_20 cuda_std_20)
+
+gwm_add_test(test_tracer_registry tests/unit/test_tracer_registry.cpp)
+gwm_add_test(test_halo_exchange tests/unit/test_halo_exchange.cpp)
+gwm_add_test(test_scalar_halo_buffers tests/unit/test_scalar_halo_buffers.cpp)
+gwm_add_test(test_mpi_runtime tests/unit/test_mpi_runtime.cpp)
+gwm_add_test(test_source_catalog tests/unit/test_source_catalog.cpp)
+gwm_add_test(test_dry_diagnostics tests/unit/test_dry_diagnostics.cpp)
+gwm_add_test(
+  test_idealized_domain_builder
+  tests/unit/test_idealized_domain_builder.cpp
+)
+gwm_add_test(test_idealized_topography tests/unit/test_idealized_topography.cpp)
+gwm_add_test(test_idealized_cases tests/unit/test_idealized_cases.cpp)
+gwm_add_test(test_surface_obsops tests/unit/test_surface_obsops.cpp)
+gwm_add_test(
+  test_virtual_rank_equivalence
+  tests/property/test_virtual_rank_equivalence.cpp
+)
+gwm_add_test(
+  test_dry_virtual_rank_equivalence
+  tests/property/test_dry_virtual_rank_equivalence.cpp
+)
+gwm_add_test(test_constant_state tests/regression/test_constant_state.cpp)
+gwm_add_test(
+  test_dry_constant_state_bundle
+  tests/regression/test_dry_constant_state_bundle.cpp
+)
+gwm_add_test(
+  test_hydrostatic_rest
+  tests/regression/test_hydrostatic_rest.cpp
+)
+gwm_add_test(
+  test_buoyancy_response
+  tests/regression/test_buoyancy_response.cpp
+)
+gwm_add_test(
+  test_scalar_mass_conservation
+  tests/regression/test_scalar_mass_conservation.cpp
+)

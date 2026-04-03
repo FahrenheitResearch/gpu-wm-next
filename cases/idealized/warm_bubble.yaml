@@ -1,0 +1,19 @@
+name: warm_bubble
+description: dry warm-bubble thermal perturbation on a flat domain
+grid:
+  nx: 64
+  ny: 32
+  nz: 24
+  dx: 500.0
+  dy: 500.0
+  z_top: 12000.0
+initialization:
+  kind: warm_bubble
+  theta_background: 300.0
+  theta_perturbation: 3.0
+  center_x_fraction: 0.5
+  center_y_fraction: 0.5
+  center_z_fraction: 0.35
+  radius_x_fraction: 0.12
+  radius_y_fraction: 0.12
+  radius_z_fraction: 0.16

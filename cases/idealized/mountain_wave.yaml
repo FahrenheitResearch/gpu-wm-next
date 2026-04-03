@@ -1,0 +1,22 @@
+name: mountain_wave
+description: hydrostatic background flow over cosine mountain topography
+grid:
+  nx: 128
+  ny: 32
+  nz: 32
+  dx: 1000.0
+  dy: 1000.0
+  z_top: 20000.0
+terrain:
+  kind: cosine_mountain
+  center_x_fraction: 0.5
+  center_y_fraction: 0.5
+  half_width_x_fraction: 0.10
+  half_width_y_fraction: 0.40
+  height: 1200.0
+initialization:
+  kind: mountain_wave_background
+  rho_surface: 1.18
+  theta_ref: 300.0
+  density_scale_height: 8200.0
+  u_background: 15.0

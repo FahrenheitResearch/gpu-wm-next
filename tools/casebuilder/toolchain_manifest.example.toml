@@ -1,0 +1,11 @@
+[paths]
+cfrust = "C:/Users/drew/cfrust"
+ecrust = "C:/Users/drew/ecrust"
+wrf_rust = "C:/Users/drew/wrf-rust"
+wrf_rust_plots = "C:/Users/drew/wrf-rust-plots"
+metrust = "C:/Users/drew/metrust"
+rusbie = "C:/Users/drew/rusbie"
+
+[policy]
+allow_missing_optional_tools = true
+require_runtime_core_separation = true
