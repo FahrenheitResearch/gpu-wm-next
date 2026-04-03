@@ -113,5 +113,20 @@ int main() {
   TEST_CHECK(terrain_domain.terrain(ic, jc) > 0.0f);
   TEST_CHECK(terrain_rho(ic, jc, 0) < terrain_rho(0, 0, 0));
 
+  bool any_nonzero_u = false;
+  for (const auto& state : mountain_states) {
+    const auto& u_storage = state.mom_u.storage();
+    for (int k = 0; k < u_storage.nz(); ++k) {
+      for (int j = 0; j < u_storage.ny(); ++j) {
+        for (int i = 0; i < u_storage.nx(); ++i) {
+          if (std::fabs(static_cast<double>(u_storage(i, j, k))) > 1.0e-6) {
+            any_nonzero_u = true;
+          }
+        }
+      }
+    }
+  }
+  TEST_CHECK(any_nonzero_u);
+
   return 0;
 }

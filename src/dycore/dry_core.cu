@@ -160,7 +160,6 @@ __global__ void compute_vertical_buoyancy_kernel(
   };
 
   if (k_face == 0 || k_face == nz) {
-    mom_w_tendency[zface_idx(i, j, k_face)] = 0.0f;
     return;
   }
 
@@ -181,7 +180,7 @@ __global__ void compute_vertical_buoyancy_kernel(
   const real buoyancy =
       gravity * (theta_face - theta_ref_face) / fmaxf(theta_ref_face, 1.0e-6f);
 
-  mom_w_tendency[zface_idx(i, j, k_face)] = rho_face * buoyancy;
+  mom_w_tendency[zface_idx(i, j, k_face)] += rho_face * buoyancy;
 }
 
 __global__ void update_cell_field_kernel(real* out, const real* base,

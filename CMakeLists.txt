@@ -88,6 +88,10 @@ gwm_add_test(test_dry_fast_modes tests/unit/test_dry_fast_modes.cpp)
 gwm_add_test(test_dry_momentum_flux tests/unit/test_dry_momentum_flux.cpp)
 gwm_add_test(test_dry_pressure_gradient tests/unit/test_dry_pressure_gradient.cpp)
 gwm_add_test(
+  test_slow_tendency_composition
+  tests/unit/test_slow_tendency_composition.cpp
+)
+gwm_add_test(
   test_hybrid_height_metrics
   tests/unit/test_hybrid_height_metrics.cpp
 )

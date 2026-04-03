@@ -33,6 +33,75 @@ real hydrostatic_rho_at_height(real rho_surface, real theta_ref, real z) {
   return gwm::core::dry_rho_from_pressure_theta(pressure, theta_ref);
 }
 
+void set_background_face_momenta(DryState& state, real u_background,
+                                 real v_background, real w_background) {
+  auto face_density_x = [&](int i_face, int j, int k) {
+    if (state.rho_d.nx() == 1) {
+      return state.rho_d(0, j, k);
+    }
+    if (i_face <= 0) {
+      return state.rho_d(0, j, k);
+    }
+    if (i_face >= state.rho_d.nx()) {
+      return state.rho_d(state.rho_d.nx() - 1, j, k);
+    }
+    return 0.5f * (state.rho_d(i_face - 1, j, k) + state.rho_d(i_face, j, k));
+  };
+
+  auto face_density_y = [&](int i, int j_face, int k) {
+    if (state.rho_d.ny() == 1) {
+      return state.rho_d(i, 0, k);
+    }
+    if (j_face <= 0) {
+      return state.rho_d(i, 0, k);
+    }
+    if (j_face >= state.rho_d.ny()) {
+      return state.rho_d(i, state.rho_d.ny() - 1, k);
+    }
+    return 0.5f * (state.rho_d(i, j_face - 1, k) + state.rho_d(i, j_face, k));
+  };
+
+  auto face_density_z = [&](int i, int j, int k_face) {
+    if (state.rho_d.nz() == 1) {
+      return state.rho_d(i, j, 0);
+    }
+    if (k_face <= 0) {
+      return state.rho_d(i, j, 0);
+    }
+    if (k_face >= state.rho_d.nz()) {
+      return state.rho_d(i, j, state.rho_d.nz() - 1);
+    }
+    return 0.5f * (state.rho_d(i, j, k_face - 1) + state.rho_d(i, j, k_face));
+  };
+
+  auto& u_storage = state.mom_u.storage();
+  for (int k = 0; k < u_storage.nz(); ++k) {
+    for (int j = 0; j < u_storage.ny(); ++j) {
+      for (int i = 0; i < u_storage.nx(); ++i) {
+        u_storage(i, j, k) = face_density_x(i, j, k) * u_background;
+      }
+    }
+  }
+
+  auto& v_storage = state.mom_v.storage();
+  for (int k = 0; k < v_storage.nz(); ++k) {
+    for (int j = 0; j < v_storage.ny(); ++j) {
+      for (int i = 0; i < v_storage.nx(); ++i) {
+        v_storage(i, j, k) = face_density_y(i, j, k) * v_background;
+      }
+    }
+  }
+
+  auto& w_storage = state.mom_w.storage();
+  for (int k = 0; k < w_storage.nz(); ++k) {
+    for (int j = 0; j < w_storage.ny(); ++j) {
+      for (int i = 0; i < w_storage.nx(); ++i) {
+        w_storage(i, j, k) = face_density_z(i, j, k) * w_background;
+      }
+    }
+  }
+}
+
 std::vector<DryState> make_bubble_like_state(
     const std::vector<domain::SubdomainDescriptor>& layout,
     const domain::GridMetrics& metrics, const ThermoBubbleConfig& config,
@@ -143,6 +212,9 @@ std::vector<DryState> make_mountain_wave_background_state(
         }
       }
     }
+
+    set_background_face_momenta(state, config.u_background, config.v_background,
+                                config.w_background);
 
     states.push_back(std::move(state));
   }

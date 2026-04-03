@@ -3,7 +3,7 @@
 ## Continuous equations
 
 The slow dry-momentum transport extension advances the conservative momentum
-components in flux form on the existing Cartesian C-grid:
+components in flux form on the terrain-aware hybrid-height C-grid:
 
 - `d m_u / dt = -div(F_u)`
 - `d m_v / dt = -div(F_v)`
@@ -19,19 +19,22 @@ advecting velocities reconstructed from the canonical conserved variables.
   momentum fields.
 - For each face-oriented momentum field, compute a first-order upwind
   flux-divergence tendency on its native control volume.
-- Add that tendency into the existing slow operator alongside:
+- Use terrain-aware local inverse vertical thickness from `GridMetrics` in the
+  vertical part of the divergence.
+- Accumulate that tendency into the existing slow operator alongside:
   - continuity/theta transport
   - horizontal pressure-gradient source
   - vertical buoyancy source
 
 This first pass is intentionally monotone and low-order. It does not yet
-include terrain metrics, Coriolis, damping, diffusion, or higher-order
+include Coriolis, damping, diffusion, or higher-order
 reconstruction.
 
 ## Invariants / admissibility conditions
 
 - constant state remains constant
 - periodic dry-momentum transport remains near-conservative
+- the operator is additive with respect to an already-populated tendency bundle
 - 1x1 and 2x2 virtual-rank layouts remain equivalent within tolerance
 - hydrostatic rest remains near rest once transport is added
 - short density-current evolution remains finite and symmetry-preserving
@@ -43,13 +46,17 @@ reconstruction.
   tendencies
 - cell-centered velocity scratch is derived only from the canonical conserved
   state and remains ephemeral scratch, not new model truth
+- flat terrain reduces exactly to the prior Cartesian vertical-spacing path
 
 ## Test mapping
 
 - `tests/unit/test_dry_momentum_flux.cpp`
+- `tests/unit/test_slow_tendency_composition.cpp`
 - `tests/property/test_dry_momentum_virtual_rank_equivalence.cpp`
+- `tests/property/test_terrain_virtual_rank_equivalence.cpp`
 - `tests/regression/test_constant_state.cpp`
 - `tests/regression/test_hydrostatic_rest.cpp`
+- `tests/regression/test_terrain_hydrostatic_rest.cpp`
 - `tests/regression/test_buoyancy_response.cpp`
 - `tests/regression/test_horizontal_pressure_response.cpp`
 - `tests/regression/test_density_current_evolution.cpp`

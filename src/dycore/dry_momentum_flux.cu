@@ -100,7 +100,6 @@ __global__ void compute_u_momentum_flux_kernel(
   };
 
   if ((i_face == 0 && open_west) || (i_face == nx && open_east)) {
-    mom_u_tendency[xface_idx(i_face, j, k)] = 0.0f;
     return;
   }
 
@@ -151,7 +150,7 @@ __global__ void compute_u_momentum_flux_kernel(
       (inv_dz_cell_metric[metric_storage_index(gi_left, gj, k, metrics_nx, metrics_ny)] +
        inv_dz_cell_metric[metric_storage_index(gi_right, gj, k, metrics_nx, metrics_ny)]);
 
-  mom_u_tendency[xface_idx(i_face, j, k)] =
+  mom_u_tendency[xface_idx(i_face, j, k)] +=
       -((flux_e - flux_w) / dx + (flux_n - flux_s) / dy +
         (flux_t - flux_b) * inv_dz);
 }
@@ -180,7 +179,6 @@ __global__ void compute_v_momentum_flux_kernel(
   };
 
   if ((j_face == 0 && open_south) || (j_face == ny && open_north)) {
-    mom_v_tendency[yface_idx(i, j_face, k)] = 0.0f;
     return;
   }
 
@@ -231,7 +229,7 @@ __global__ void compute_v_momentum_flux_kernel(
       (inv_dz_cell_metric[metric_storage_index(gi, gj_south, k, metrics_nx, metrics_ny)] +
        inv_dz_cell_metric[metric_storage_index(gi, gj_north, k, metrics_nx, metrics_ny)]);
 
-  mom_v_tendency[yface_idx(i, j_face, k)] =
+  mom_v_tendency[yface_idx(i, j_face, k)] +=
       -((flux_e - flux_w) / dx + (flux_n - flux_s) / dy +
         (flux_t - flux_b) * inv_dz);
 }
@@ -260,7 +258,6 @@ __global__ void compute_w_momentum_flux_kernel(
   };
 
   if (k_face == 0 || k_face == nz) {
-    mom_w_tendency[zface_idx(i, j, k_face)] = 0.0f;
     return;
   }
 
@@ -309,7 +306,7 @@ __global__ void compute_w_momentum_flux_kernel(
           wrap_metric_index(j_begin + j, metrics_ny, periodic_y), k_face,
           metrics_nx, metrics_ny)];
 
-  mom_w_tendency[zface_idx(i, j, k_face)] =
+  mom_w_tendency[zface_idx(i, j, k_face)] +=
       -((flux_e - flux_w) / dx + (flux_n - flux_s) / dy +
         (flux_t - flux_b) * inv_dz);
 }

@@ -9,7 +9,8 @@ localized perturbations that map into the canonical dry conserved state.
 
 - build a rectilinear domain and vertical metric set
 - initialize conserved dry mass and dry potential-temperature density
-- initialize face momentum from prescribed background flow
+- initialize face momentum from prescribed background flow using density-aware
+  face averages of the initialized conserved mass field
 - apply localized thermal perturbations through `rho_d * theta_m`
 - build hydrostatic rest / mountain-wave background density from an EOS-consistent
   constant-`theta` hydrostatic profile in physical height

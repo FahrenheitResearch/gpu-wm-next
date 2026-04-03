@@ -96,7 +96,6 @@ __global__ void compute_x_pressure_gradient_kernel(
   };
 
   if ((i_face == 0 && open_west) || (i_face == nx && open_east)) {
-    mom_u_tendency[face_idx(i_face, j, k)] = 0.0f;
     return;
   }
 
@@ -119,7 +118,7 @@ __global__ void compute_x_pressure_gradient_kernel(
       pressure, z_centers_metric, metrics_nx, metrics_ny, nz, gi_right, gj, k,
       i_face, j, halo, nx, ny);
   const real dpdz_face = 0.5f * (dpdz_left + dpdz_right);
-  mom_u_tendency[face_idx(i_face, j, k)] =
+  mom_u_tendency[face_idx(i_face, j, k)] +=
       -((p_right - p_left) / dx - dzdx * dpdz_face);
 }
 
@@ -147,7 +146,6 @@ __global__ void compute_y_pressure_gradient_kernel(
   };
 
   if ((j_face == 0 && open_south) || (j_face == ny && open_north)) {
-    mom_v_tendency[face_idx(i, j_face, k)] = 0.0f;
     return;
   }
 
@@ -170,7 +168,7 @@ __global__ void compute_y_pressure_gradient_kernel(
       pressure, z_centers_metric, metrics_nx, metrics_ny, nz, gi, gj_north, k,
       i, j_face, halo, nx, ny);
   const real dpdz_face = 0.5f * (dpdz_south + dpdz_north);
-  mom_v_tendency[face_idx(i, j_face, k)] =
+  mom_v_tendency[face_idx(i, j_face, k)] +=
       -((p_north - p_south) / dy - dzdy * dpdz_face);
 }
 
