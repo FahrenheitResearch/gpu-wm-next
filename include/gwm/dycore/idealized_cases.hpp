@@ -26,6 +26,8 @@ struct ThermoBubbleConfig {
 struct MountainWaveBackgroundConfig {
   real rho_surface = 1.18f;
   real theta_ref = 300.0f;
+  // Retained for compatibility with older configs; ignored by the current
+  // constant-theta hydrostatic mountain-wave initializer.
   real density_scale_height = 8200.0f;
   real u_background = 15.0f;
   real v_background = 0.0f;

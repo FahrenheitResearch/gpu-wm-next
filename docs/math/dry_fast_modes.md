@@ -22,11 +22,13 @@ EOS using `rho_d` and `rho_d theta_m`, and the fast subcycle holds
   density-perturbation gravity term using:
   - horizontally averaged level reference profiles in the exact flat limit
   - column-local hydrostatic reference profiles when terrain-aware geometry is active
+- Use terrain-aware interface heights and inverse cell thickness from
+  `GridMetrics` in the vertical acoustic branch.
 - Exchange face halos.
 - Update `rho_d` from the divergence of the updated face momenta.
 
 This is a local forward-backward acoustic subcycle. It does not yet include
-nonlinear momentum transport, Coriolis, terrain metrics, or moist coupling.
+nonlinear momentum transport, Coriolis, real MPI exchange, or moist coupling.
 
 ## Invariants / admissibility conditions
 
@@ -49,7 +51,10 @@ nonlinear momentum transport, Coriolis, terrain metrics, or moist coupling.
 
 - `tests/unit/test_dry_fast_modes.cpp`
 - `tests/property/test_dry_fastmode_virtual_rank_equivalence.cpp`
+- `tests/property/test_terrain_virtual_rank_equivalence.cpp`
 - `tests/regression/test_dry_constant_state_bundle.cpp`
 - `tests/regression/test_hydrostatic_rest.cpp`
+- `tests/regression/test_terrain_hydrostatic_rest.cpp`
 - `tests/regression/test_acoustic_pulse.cpp`
 - `tests/regression/test_horizontal_pressure_response.cpp`
+- `tests/regression/test_mountain_wave_evolution.cpp`

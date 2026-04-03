@@ -14,6 +14,8 @@ localized perturbations that map into the canonical dry conserved state.
 - apply localized thermal perturbations through `rho_d * theta_m`
 - build hydrostatic rest / mountain-wave background density from an EOS-consistent
   constant-`theta` hydrostatic profile in physical height
+- retain `density_scale_height` only as a compatibility knob; the current
+  mountain-wave background no longer uses it
 - keep perturbation support explicit and bounded
 
 ## Invariants / admissibility

@@ -106,6 +106,27 @@ int main() {
         }(),
         split_domain.layout, "split_terrain_rho");
 
+    const auto serial_theta = comm::VirtualRankLayout::gather_scalar(
+        [&serial_state]() {
+          std::vector<state::Field3D<real>> fields;
+          for (const auto& s : serial_state) {
+            fields.push_back(s.rho_theta_m.clone_empty_like("_g"));
+            fields.back().copy_all_from(s.rho_theta_m);
+          }
+          return fields;
+        }(),
+        serial_domain.layout, "serial_terrain_theta");
+    const auto split_theta = comm::VirtualRankLayout::gather_scalar(
+        [&split_state]() {
+          std::vector<state::Field3D<real>> fields;
+          for (const auto& s : split_state) {
+            fields.push_back(s.rho_theta_m.clone_empty_like("_g"));
+            fields.back().copy_all_from(s.rho_theta_m);
+          }
+          return fields;
+        }(),
+        split_domain.layout, "split_terrain_theta");
+
     const auto serial_u = comm::VirtualRankLayout::gather_face(
         [&serial_state]() {
           std::vector<state::FaceField<real>> fields;
@@ -130,6 +151,31 @@ int main() {
           return fields;
         }(),
         split_domain.layout, state::FaceOrientation::X, "split_terrain_u");
+
+    const auto serial_v = comm::VirtualRankLayout::gather_face(
+        [&serial_state]() {
+          std::vector<state::FaceField<real>> fields;
+          for (const auto& s : serial_state) {
+            fields.push_back(state::FaceField<real>(s.rho_d.nx(), s.rho_d.ny(),
+                                                    s.rho_d.nz(), s.rho_d.halo(),
+                                                    state::FaceOrientation::Y, "v"));
+            fields.back().storage().copy_all_from(s.mom_v.storage());
+          }
+          return fields;
+        }(),
+        serial_domain.layout, state::FaceOrientation::Y, "serial_terrain_v");
+    const auto split_v = comm::VirtualRankLayout::gather_face(
+        [&split_state]() {
+          std::vector<state::FaceField<real>> fields;
+          for (const auto& s : split_state) {
+            fields.push_back(state::FaceField<real>(s.rho_d.nx(), s.rho_d.ny(),
+                                                    s.rho_d.nz(), s.rho_d.halo(),
+                                                    state::FaceOrientation::Y, "v"));
+            fields.back().storage().copy_all_from(s.mom_v.storage());
+          }
+          return fields;
+        }(),
+        split_domain.layout, state::FaceOrientation::Y, "split_terrain_v");
 
     const auto serial_w = comm::VirtualRankLayout::gather_face(
         [&serial_state]() {
@@ -157,7 +203,9 @@ int main() {
         split_domain.layout, state::FaceOrientation::Z, "split_terrain_w");
 
     compare_scalar_fields(serial_rho, split_rho, 2.0e-4, "terrain_rho");
+    compare_scalar_fields(serial_theta, split_theta, 1.0e-3, "terrain_theta");
     compare_scalar_fields(serial_u.storage(), split_u.storage(), 3.0e-4, "terrain_u");
+    compare_scalar_fields(serial_v.storage(), split_v.storage(), 3.0e-4, "terrain_v");
     compare_scalar_fields(serial_w.storage(), split_w.storage(), 5.0e-4, "terrain_w");
     return 0;
   } catch (const std::exception& ex) {
