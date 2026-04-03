@@ -19,8 +19,9 @@ EOS using `rho_d` and `rho_d theta_m`, and the fast subcycle holds
 - Reconstruct pressure each substep from the canonical conserved state.
 - Update `mom_u` and `mom_v` from face-centered pressure differences.
 - Update `mom_w` from a perturbation-form vertical pressure-gradient plus
-  density-perturbation gravity term using horizontally averaged reference
-  profiles.
+  density-perturbation gravity term using:
+  - horizontally averaged level reference profiles in the exact flat limit
+  - column-local hydrostatic reference profiles when terrain-aware geometry is active
 - Exchange face halos.
 - Update `rho_d` from the divergence of the updated face momenta.
 
@@ -40,7 +41,9 @@ nonlinear momentum transport, Coriolis, terrain metrics, or moist coupling.
 - `dt_fast` is small enough for the explicit local acoustic update
 - scalar and face halo exchange are correct before operators that need neighbor
   values
-- the vertical perturbation reference profile is horizontally consistent
+- the flat-limit reference reduces exactly to the prior 1-D profile behavior
+- the terrain-aware reference is rebuilt from the local column state and metricized
+  heights so terrain hydrostatic-rest remains near rest
 
 ## Test mapping
 

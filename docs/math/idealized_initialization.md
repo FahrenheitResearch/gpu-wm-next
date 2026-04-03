@@ -11,6 +11,8 @@ localized perturbations that map into the canonical dry conserved state.
 - initialize conserved dry mass and dry potential-temperature density
 - initialize face momentum from prescribed background flow
 - apply localized thermal perturbations through `rho_d * theta_m`
+- build hydrostatic rest / mountain-wave background density from an EOS-consistent
+  constant-`theta` hydrostatic profile in physical height
 - keep perturbation support explicit and bounded
 
 ## Invariants / admissibility

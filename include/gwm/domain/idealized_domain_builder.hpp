@@ -19,6 +19,7 @@ struct RectilinearDomainConfig {
   double dx = 1000.0;
   double dy = 1000.0;
   double z_top = 16000.0;
+  double terrain_taper_eta = 0.25;
   TerrainProfileKind terrain_kind = TerrainProfileKind::Flat;
   double mountain_center_x = 0.5;
   double mountain_center_y = 0.5;

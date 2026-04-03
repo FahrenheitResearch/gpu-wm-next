@@ -79,5 +79,39 @@ int main() {
   TEST_CHECK(cold_min < bubble_cfg.rho_background * bubble_cfg.theta_background);
   TEST_CHECK(cold_min > 0.0f);
 
+  domain::RectilinearDomainConfig terrain_cfg = config;
+  terrain_cfg.terrain_kind = domain::TerrainProfileKind::CosineMountain;
+  terrain_cfg.mountain_height = 1000.0;
+  terrain_cfg.mountain_half_width_x = 0.20;
+  terrain_cfg.mountain_half_width_y = 0.20;
+  const auto terrain_domain = domain::build_rectilinear_domain(terrain_cfg);
+
+  dycore::MountainWaveBackgroundConfig mw_cfg{};
+  mw_cfg.rho_surface = 1.18f;
+  mw_cfg.theta_ref = 300.0f;
+  mw_cfg.density_scale_height = 8200.0f;
+  mw_cfg.u_background = 15.0f;
+
+  auto mountain_states = dycore::make_mountain_wave_background_state(
+      terrain_domain.layout, terrain_domain.metrics, terrain_domain, mw_cfg,
+      "terrain_mountain");
+  const auto terrain_rho =
+      comm::VirtualRankLayout::gather_scalar(
+          [&mountain_states]() {
+            std::vector<state::Field3D<real>> fields;
+            fields.reserve(mountain_states.size());
+            for (const auto& state : mountain_states) {
+              fields.push_back(state.rho_d.clone_empty_like("_gather"));
+              fields.back().copy_all_from(state.rho_d);
+            }
+            return fields;
+          }(),
+          terrain_domain.layout, "mountain_rho");
+
+  const int ic = terrain_cfg.nx / 2;
+  const int jc = terrain_cfg.ny / 2;
+  TEST_CHECK(terrain_domain.terrain(ic, jc) > 0.0f);
+  TEST_CHECK(terrain_rho(ic, jc, 0) < terrain_rho(0, 0, 0));
+
   return 0;
 }

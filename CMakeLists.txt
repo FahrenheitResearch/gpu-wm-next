@@ -88,6 +88,10 @@ gwm_add_test(test_dry_fast_modes tests/unit/test_dry_fast_modes.cpp)
 gwm_add_test(test_dry_momentum_flux tests/unit/test_dry_momentum_flux.cpp)
 gwm_add_test(test_dry_pressure_gradient tests/unit/test_dry_pressure_gradient.cpp)
 gwm_add_test(
+  test_hybrid_height_metrics
+  tests/unit/test_hybrid_height_metrics.cpp
+)
+gwm_add_test(
   test_idealized_domain_builder
   tests/unit/test_idealized_domain_builder.cpp
 )
@@ -110,6 +114,10 @@ gwm_add_test(
   test_dry_fastmode_virtual_rank_equivalence
   tests/property/test_dry_fastmode_virtual_rank_equivalence.cpp
 )
+gwm_add_test(
+  test_terrain_virtual_rank_equivalence
+  tests/property/test_terrain_virtual_rank_equivalence.cpp
+)
 gwm_add_test(test_constant_state tests/regression/test_constant_state.cpp)
 gwm_add_test(
   test_dry_constant_state_bundle
@@ -118,6 +126,10 @@ gwm_add_test(
 gwm_add_test(
   test_hydrostatic_rest
   tests/regression/test_hydrostatic_rest.cpp
+)
+gwm_add_test(
+  test_terrain_hydrostatic_rest
+  tests/regression/test_terrain_hydrostatic_rest.cpp
 )
 gwm_add_test(
   test_buoyancy_response
@@ -134,6 +146,10 @@ gwm_add_test(
 gwm_add_test(
   test_acoustic_pulse
   tests/regression/test_acoustic_pulse.cpp
+)
+gwm_add_test(
+  test_mountain_wave_evolution
+  tests/regression/test_mountain_wave_evolution.cpp
 )
 gwm_add_test(
   test_scalar_mass_conservation

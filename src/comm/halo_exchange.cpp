@@ -297,6 +297,65 @@ void exchange_face_impl(
   }
 }
 
+void synchronize_face_owned_interfaces_impl(
+    const std::vector<state::FaceField<real>*>& fields,
+    const std::vector<domain::SubdomainDescriptor>& layout) {
+  gwm::require(fields.size() == layout.size(),
+               "Field/layout size mismatch in synchronize_owned_face_interfaces");
+  if (fields.empty()) {
+    return;
+  }
+
+  const auto orientation = fields.front()->orientation();
+  if (orientation == state::FaceOrientation::Z) {
+    return;
+  }
+
+  for (std::size_t n = 0; n < layout.size(); ++n) {
+    gwm::require(fields[n] != nullptr,
+                 "Null field pointer in synchronize_owned_face_interfaces");
+    gwm::require(fields[n]->orientation() == orientation,
+                 "Face orientation mismatch in synchronize_owned_face_interfaces");
+  }
+
+  for (std::size_t n = 0; n < layout.size(); ++n) {
+    auto& field = *fields[n];
+    auto& storage = field.storage();
+    const auto& desc = layout[n];
+    const auto neighbors = find_cartesian_neighbors(layout, desc);
+
+    if (orientation == state::FaceOrientation::X && neighbors.east >= 0 &&
+        (static_cast<int>(n) < neighbors.east ||
+         neighbors.east == static_cast<int>(n))) {
+      auto& peer_storage =
+          fields[static_cast<std::size_t>(neighbors.east)]->storage();
+      for (int k = 0; k < storage.nz(); ++k) {
+        for (int j = 0; j < desc.ny_local(); ++j) {
+          const real avg =
+              0.5f * (storage(desc.nx_local(), j, k) + peer_storage(0, j, k));
+          storage(desc.nx_local(), j, k) = avg;
+          peer_storage(0, j, k) = avg;
+        }
+      }
+    }
+
+    if (orientation == state::FaceOrientation::Y && neighbors.north >= 0 &&
+        (static_cast<int>(n) < neighbors.north ||
+         neighbors.north == static_cast<int>(n))) {
+      auto& peer_storage =
+          fields[static_cast<std::size_t>(neighbors.north)]->storage();
+      for (int k = 0; k < storage.nz(); ++k) {
+        for (int i = 0; i < desc.nx_local(); ++i) {
+          const real avg =
+              0.5f * (storage(i, desc.ny_local(), k) + peer_storage(i, 0, k));
+          storage(i, desc.ny_local(), k) = avg;
+          peer_storage(i, 0, k) = avg;
+        }
+      }
+    }
+  }
+}
+
 void HaloExchange::exchange_face(
     std::vector<state::FaceField<real>>& fields,
     const std::vector<domain::SubdomainDescriptor>& layout) {
@@ -312,6 +371,23 @@ void HaloExchange::exchange_face(
     const std::vector<state::FaceField<real>*>& fields,
     const std::vector<domain::SubdomainDescriptor>& layout) {
   exchange_face_impl(fields, layout);
+}
+
+void HaloExchange::synchronize_owned_face_interfaces(
+    std::vector<state::FaceField<real>>& fields,
+    const std::vector<domain::SubdomainDescriptor>& layout) {
+  std::vector<state::FaceField<real>*> field_ptrs;
+  field_ptrs.reserve(fields.size());
+  for (auto& field : fields) {
+    field_ptrs.push_back(&field);
+  }
+  synchronize_face_owned_interfaces_impl(field_ptrs, layout);
+}
+
+void HaloExchange::synchronize_owned_face_interfaces(
+    const std::vector<state::FaceField<real>*>& fields,
+    const std::vector<domain::SubdomainDescriptor>& layout) {
+  synchronize_face_owned_interfaces_impl(fields, layout);
 }
 
 }  // namespace gwm::comm

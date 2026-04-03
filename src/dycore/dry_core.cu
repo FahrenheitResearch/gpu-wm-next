@@ -14,6 +14,23 @@ namespace gwm::dycore {
 
 namespace {
 
+constexpr real kGravity = 9.81f;
+
+real hydrostatic_rho_at_height(real rho_surface, real theta_ref, real z,
+                               real gravity) {
+  const real p_surface = gwm::core::dry_pressure_from_rho_theta_m(
+      rho_surface, rho_surface * theta_ref);
+  const real exner_surface =
+      powf(fmaxf(p_surface / gwm::core::kReferencePressure, 1.0e-6f),
+           gwm::core::kKappa);
+  const real exner =
+      fmaxf(1.0e-4f, exner_surface -
+                         gravity * z / (gwm::core::dry_cp() * theta_ref));
+  const real pressure =
+      gwm::core::kReferencePressure * powf(exner, 1.0f / gwm::core::kKappa);
+  return gwm::core::dry_rho_from_pressure_theta(pressure, theta_ref);
+}
+
 __host__ __device__ std::size_t face_storage_index(int i, int j, int k, int nx,
                                                    int ny, int halo) {
   const int pitch_x = nx + 2 * halo;
@@ -22,6 +39,14 @@ __host__ __device__ std::size_t face_storage_index(int i, int j, int k, int nx,
           static_cast<std::size_t>(j + halo)) *
              static_cast<std::size_t>(pitch_x) +
          static_cast<std::size_t>(i + halo);
+}
+
+__host__ __device__ std::size_t metric_storage_index(int i, int j, int k,
+                                                     int nx, int ny) {
+  return (static_cast<std::size_t>(k) * static_cast<std::size_t>(ny) +
+          static_cast<std::size_t>(j)) *
+             static_cast<std::size_t>(nx) +
+         static_cast<std::size_t>(i);
 }
 
 __global__ void fill_tendencies_zero_kernel(real* data, int total_size) {
@@ -34,8 +59,9 @@ __global__ void fill_tendencies_zero_kernel(real* data, int total_size) {
 __global__ void compute_cell_tendencies_kernel(
     const real* rho_d, const real* rho_theta_m, const real* mom_u,
     const real* mom_v, const real* mom_w, real* rho_tendency,
-    real* rho_theta_tendency, int nx, int ny, int nz, int halo, real dx,
-    real dy, real dz) {
+    real* rho_theta_tendency, const real* inv_dz_cell_metric, int metrics_nx,
+    int metrics_ny, int i_begin, int j_begin, int nx, int ny, int nz,
+    int halo, real dx, real dy) {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
   const int j = blockIdx.y * blockDim.y + threadIdx.y;
   const int k = blockIdx.z * blockDim.z + threadIdx.z;
@@ -64,10 +90,13 @@ __global__ void compute_cell_tendencies_kernel(
   const real mass_flux_n = mom_v[yface_idx(i, j + 1, k)];
   const real mass_flux_b = mom_w[zface_idx(i, j, k)];
   const real mass_flux_t = mom_w[zface_idx(i, j, k + 1)];
+  const real inv_dz =
+      inv_dz_cell_metric[metric_storage_index(i_begin + i, j_begin + j, k,
+                                              metrics_nx, metrics_ny)];
 
   const real div_mass = (mass_flux_e - mass_flux_w) / dx +
                         (mass_flux_n - mass_flux_s) / dy +
-                        (mass_flux_t - mass_flux_b) / dz;
+                        (mass_flux_t - mass_flux_b) * inv_dz;
   rho_tendency[cell_idx(i, j, k)] = -div_mass;
 
   const real rho_c = rho_d[cell_idx(i, j, k)];
@@ -107,7 +136,7 @@ __global__ void compute_cell_tendencies_kernel(
 
   const real div_rho_theta = (flux_theta_e - flux_theta_w) / dx +
                              (flux_theta_n - flux_theta_s) / dy +
-                             (flux_theta_t - flux_theta_b) / dz;
+                             (flux_theta_t - flux_theta_b) * inv_dz;
   rho_theta_tendency[cell_idx(i, j, k)] = -div_rho_theta;
 }
 
@@ -317,6 +346,7 @@ std::vector<DryState> make_hydrostatic_rest_state(
     const std::vector<domain::SubdomainDescriptor>& layout,
     const domain::GridMetrics& metrics, real rho_surface, real theta_ref,
     real density_scale_height, const std::string& label_prefix) {
+  (void)density_scale_height;
   gwm::require(static_cast<int>(metrics.z_centers.size()) == metrics.nz,
                "Grid metrics must contain z-centers for hydrostatic state");
 
@@ -328,12 +358,13 @@ std::vector<DryState> make_hydrostatic_rest_state(
     state.fill_constant(0.0f, theta_ref, 0.0f, 0.0f, 0.0f);
 
     for (int k = 0; k < desc.nz; ++k) {
-      const real rho_k = static_cast<real>(
-          rho_surface *
-          std::exp(-metrics.z_centers[static_cast<std::size_t>(k)] /
-                   density_scale_height));
       for (int j = 0; j < desc.ny_local(); ++j) {
+        const int j_global = desc.j_begin + j;
         for (int i = 0; i < desc.nx_local(); ++i) {
+          const int i_global = desc.i_begin + i;
+          const real rho_k = hydrostatic_rho_at_height(
+              rho_surface, theta_ref, metrics.z_center(i_global, j_global, k),
+              kGravity);
           state.rho_d(i, j, k) = rho_k;
           state.rho_theta_m(i, j, k) = rho_k * theta_ref;
         }
@@ -401,6 +432,10 @@ void compute_slow_tendencies(
   comm::HaloExchange::exchange_face(mom_u_fields, layout);
   comm::HaloExchange::exchange_face(mom_v_fields, layout);
   comm::HaloExchange::exchange_face(mom_w_fields, layout);
+  comm::HaloExchange::synchronize_owned_face_interfaces(mom_u_fields, layout);
+  comm::HaloExchange::synchronize_owned_face_interfaces(mom_v_fields, layout);
+  comm::HaloExchange::exchange_face(mom_u_fields, layout);
+  comm::HaloExchange::exchange_face(mom_v_fields, layout);
   compute_dry_pressure_fields(rho_fields, rho_theta_fields, pressure_fields);
 
   std::vector<double> theta_sum(static_cast<std::size_t>(metrics.nz), 0.0);
@@ -427,7 +462,6 @@ void compute_slow_tendencies(
         theta_sum[idx] / static_cast<double>(std::max<std::size_t>(1, theta_count[idx])));
   }
 
-  const real dz = static_cast<real>(metrics.dz_nominal);
   for (std::size_t n = 0; n < states.size(); ++n) {
     out[n].fill_zero();
 
@@ -438,11 +472,13 @@ void compute_slow_tendencies(
 
     compute_cell_tendencies_kernel<<<grid, block>>>(
         rho_fields[n].data(), rho_theta_fields[n].data(),
-        states[n].mom_u.storage().data(), states[n].mom_v.storage().data(),
-        states[n].mom_w.storage().data(), out[n].rho_d.data(),
-        out[n].rho_theta_m.data(), states[n].rho_d.nx(), states[n].rho_d.ny(),
-        states[n].rho_d.nz(), states[n].rho_d.halo(),
-        static_cast<real>(metrics.dx), static_cast<real>(metrics.dy), dz);
+        mom_u_fields[n].storage().data(), mom_v_fields[n].storage().data(),
+        mom_w_fields[n].storage().data(), out[n].rho_d.data(),
+        out[n].rho_theta_m.data(), metrics.inv_dz_cell_metric.data(),
+        metrics.nx, metrics.ny, layout[n].i_begin, layout[n].j_begin,
+        states[n].rho_d.nx(), states[n].rho_d.ny(), states[n].rho_d.nz(),
+        states[n].rho_d.halo(), static_cast<real>(metrics.dx),
+        static_cast<real>(metrics.dy));
     GWM_CUDA_CHECK(cudaGetLastError());
   }
 

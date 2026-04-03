@@ -24,4 +24,15 @@ __host__ __device__ inline real dry_pressure_from_rho_theta_m(
          powf(ratio, 1.0f / (1.0f - kKappa));
 }
 
+__host__ __device__ inline real dry_rho_from_pressure_theta(real pressure,
+                                                            real theta) {
+  const real exner =
+      powf(fmaxf(pressure / kReferencePressure, 1.0e-6f), kKappa);
+  return pressure / fmaxf(kDryGasConstant * theta * exner, 1.0e-6f);
+}
+
+__host__ __device__ inline real dry_cp() {
+  return kDryGasConstant / kKappa;
+}
+
 }  // namespace gwm::core

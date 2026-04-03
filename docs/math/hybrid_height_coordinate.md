@@ -12,7 +12,9 @@ with `b(eta)` decreasing rapidly aloft.
 ## Discrete update
 
 Layer interfaces and centers are precomputed from `a_k`, `b_k`, and smoothed
-dynamic terrain. Metric terms are stored in `GridMetrics`.
+dynamic terrain. `GridMetrics` now stores terrain-aware interface/center
+heights, inverse cell/face thicknesses, and terrain slopes, while preserving the
+exact flat limit when `terrain_dyn = 0`.
 
 ## Invariants / admissibility
 
@@ -27,5 +29,7 @@ dynamic terrain. Metric terms are stored in `GridMetrics`.
 
 ## Test mapping
 
-- future coordinate monotonicity/unit tests
-- future flat-terrain equivalence tests
+- `test_hybrid_height_metrics`
+- `test_terrain_hydrostatic_rest`
+- `test_terrain_virtual_rank_equivalence`
+- `test_mountain_wave_evolution`

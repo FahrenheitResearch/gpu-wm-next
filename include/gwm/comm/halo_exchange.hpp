@@ -51,6 +51,14 @@ class HaloExchange {
   static void exchange_face(
       const std::vector<state::FaceField<real>*>& fields,
       const std::vector<domain::SubdomainDescriptor>& layout);
+
+  static void synchronize_owned_face_interfaces(
+      std::vector<state::FaceField<real>>& fields,
+      const std::vector<domain::SubdomainDescriptor>& layout);
+
+  static void synchronize_owned_face_interfaces(
+      const std::vector<state::FaceField<real>*>& fields,
+      const std::vector<domain::SubdomainDescriptor>& layout);
 };
 
 }  // namespace gwm::comm

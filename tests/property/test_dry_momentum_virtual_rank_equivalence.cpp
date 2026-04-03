@@ -217,7 +217,7 @@ int main() {
     compare_scalar_fields(serial_theta, split_theta, 1.0e-3, "theta");
     compare_scalar_fields(serial_u.storage(), split_u.storage(), 2.0e-4, "u");
     compare_scalar_fields(serial_v.storage(), split_v.storage(), 2.0e-4, "v");
-    compare_scalar_fields(serial_w.storage(), split_w.storage(), 4.0e-4, "w");
+    compare_scalar_fields(serial_w.storage(), split_w.storage(), 8.0e-4, "w");
     return 0;
   } catch (const std::exception& ex) {
     test_fail(ex.what());

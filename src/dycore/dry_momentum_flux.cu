@@ -7,6 +7,22 @@ namespace gwm::dycore {
 
 namespace {
 
+__host__ __device__ std::size_t metric_storage_index(int i, int j, int k,
+                                                     int nx, int ny) {
+  return (static_cast<std::size_t>(k) * static_cast<std::size_t>(ny) +
+          static_cast<std::size_t>(j)) *
+             static_cast<std::size_t>(nx) +
+         static_cast<std::size_t>(i);
+}
+
+__host__ __device__ int wrap_metric_index(int idx, int n, bool periodic) {
+  if (!periodic) {
+    return idx;
+  }
+  const int mod = idx % n;
+  return mod < 0 ? mod + n : mod;
+}
+
 __host__ __device__ std::size_t face_storage_index(int i, int j, int k, int nx,
                                                    int ny, int halo) {
   const int pitch_x = nx + 2 * halo;
@@ -63,8 +79,10 @@ __device__ real upwind_flux(real adv_speed, real q_left, real q_right) {
 __global__ void compute_u_momentum_flux_kernel(
     const real* u_face, const real* v_face, const real* w_face, const real* u_cell,
     const real* v_cell, const real* w_cell, real* mom_u_tendency, int nx, int ny,
-    int nz, int halo, real dx, real dy, real dz, bool open_west, bool open_east,
-    bool open_south, bool open_north) {
+    int nz, int halo, const real* inv_dz_cell_metric, int metrics_nx,
+    int metrics_ny, bool periodic_x, bool periodic_y, int i_begin, int j_begin,
+    real dx, real dy, bool open_west, bool open_east, bool open_south,
+    bool open_north) {
   const int i_face = blockIdx.x * blockDim.x + threadIdx.x;
   const int j = blockIdx.y * blockDim.y + threadIdx.y;
   const int k = blockIdx.z * blockDim.z + threadIdx.z;
@@ -123,16 +141,28 @@ __global__ void compute_u_momentum_flux_kernel(
     flux_t = upwind_flux(w_t, q_c, q_t);
   }
 
+  const int gj = wrap_metric_index(j_begin + j, metrics_ny, periodic_y);
+  const int gi_left =
+      wrap_metric_index(i_begin + i_face - 1, metrics_nx, periodic_x);
+  const int gi_right =
+      wrap_metric_index(i_begin + i_face, metrics_nx, periodic_x);
+  const real inv_dz =
+      0.5f *
+      (inv_dz_cell_metric[metric_storage_index(gi_left, gj, k, metrics_nx, metrics_ny)] +
+       inv_dz_cell_metric[metric_storage_index(gi_right, gj, k, metrics_nx, metrics_ny)]);
+
   mom_u_tendency[xface_idx(i_face, j, k)] =
       -((flux_e - flux_w) / dx + (flux_n - flux_s) / dy +
-        (flux_t - flux_b) / dz);
+        (flux_t - flux_b) * inv_dz);
 }
 
 __global__ void compute_v_momentum_flux_kernel(
     const real* u_face, const real* v_face, const real* w_face, const real* u_cell,
     const real* v_cell, const real* w_cell, real* mom_v_tendency, int nx, int ny,
-    int nz, int halo, real dx, real dy, real dz, bool open_west, bool open_east,
-    bool open_south, bool open_north) {
+    int nz, int halo, const real* inv_dz_cell_metric, int metrics_nx,
+    int metrics_ny, bool periodic_x, bool periodic_y, int i_begin, int j_begin,
+    real dx, real dy, bool open_west, bool open_east, bool open_south,
+    bool open_north) {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
   const int j_face = blockIdx.y * blockDim.y + threadIdx.y;
   const int k = blockIdx.z * blockDim.z + threadIdx.z;
@@ -191,16 +221,28 @@ __global__ void compute_v_momentum_flux_kernel(
     flux_t = upwind_flux(w_t, q_c, q_t);
   }
 
+  const int gi = wrap_metric_index(i_begin + i, metrics_nx, periodic_x);
+  const int gj_south =
+      wrap_metric_index(j_begin + j_face - 1, metrics_ny, periodic_y);
+  const int gj_north =
+      wrap_metric_index(j_begin + j_face, metrics_ny, periodic_y);
+  const real inv_dz =
+      0.5f *
+      (inv_dz_cell_metric[metric_storage_index(gi, gj_south, k, metrics_nx, metrics_ny)] +
+       inv_dz_cell_metric[metric_storage_index(gi, gj_north, k, metrics_nx, metrics_ny)]);
+
   mom_v_tendency[yface_idx(i, j_face, k)] =
       -((flux_e - flux_w) / dx + (flux_n - flux_s) / dy +
-        (flux_t - flux_b) / dz);
+        (flux_t - flux_b) * inv_dz);
 }
 
 __global__ void compute_w_momentum_flux_kernel(
     const real* u_face, const real* v_face, const real* w_face, const real* u_cell,
     const real* v_cell, const real* w_cell, real* mom_w_tendency, int nx, int ny,
-    int nz, int halo, real dx, real dy, real dz, bool open_west, bool open_east,
-    bool open_south, bool open_north) {
+    int nz, int halo, const real* inv_dz_face_metric, int metrics_nx,
+    int metrics_ny, bool periodic_x, bool periodic_y, int i_begin, int j_begin,
+    real dx, real dy, bool open_west, bool open_east, bool open_south,
+    bool open_north) {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
   const int j = blockIdx.y * blockDim.y + threadIdx.y;
   const int k_face = blockIdx.z * blockDim.z + threadIdx.z;
@@ -261,10 +303,15 @@ __global__ void compute_w_momentum_flux_kernel(
 
   const real flux_b = upwind_flux(w_cell[cell_idx(i, j, k_lower)], q_b, q_c);
   const real flux_t = upwind_flux(w_cell[cell_idx(i, j, k_upper)], q_c, q_t);
+  const real inv_dz =
+      inv_dz_face_metric[metric_storage_index(
+          wrap_metric_index(i_begin + i, metrics_nx, periodic_x),
+          wrap_metric_index(j_begin + j, metrics_ny, periodic_y), k_face,
+          metrics_nx, metrics_ny)];
 
   mom_w_tendency[zface_idx(i, j, k_face)] =
       -((flux_e - flux_w) / dx + (flux_n - flux_s) / dy +
-        (flux_t - flux_b) / dz);
+        (flux_t - flux_b) * inv_dz);
 }
 
 void sync_after_launches() { GWM_CUDA_CHECK(cudaDeviceSynchronize()); }
@@ -324,9 +371,11 @@ void add_dry_momentum_flux_tendencies(
         mom_w_fields[n].storage().data(), u_cell[n].data(), v_cell[n].data(),
         w_cell[n].data(), out[n].mom_u.storage().data(), layout[n].nx_local(),
         layout[n].ny_local(), layout[n].nz, layout[n].halo,
-        static_cast<real>(metrics.dx), static_cast<real>(metrics.dy),
-        static_cast<real>(metrics.dz_nominal), neighbors.west < 0,
-        neighbors.east < 0, neighbors.south < 0, neighbors.north < 0);
+        metrics.inv_dz_cell_metric.data(), metrics.nx, metrics.ny,
+        metrics.periodic_x, metrics.periodic_y, layout[n].i_begin,
+        layout[n].j_begin, static_cast<real>(metrics.dx),
+        static_cast<real>(metrics.dy), neighbors.west < 0, neighbors.east < 0,
+        neighbors.south < 0, neighbors.north < 0);
     GWM_CUDA_CHECK(cudaGetLastError());
 
     dim3 v_grid((layout[n].nx_local() + block.x - 1) / block.x,
@@ -337,9 +386,11 @@ void add_dry_momentum_flux_tendencies(
         mom_w_fields[n].storage().data(), u_cell[n].data(), v_cell[n].data(),
         w_cell[n].data(), out[n].mom_v.storage().data(), layout[n].nx_local(),
         layout[n].ny_local(), layout[n].nz, layout[n].halo,
-        static_cast<real>(metrics.dx), static_cast<real>(metrics.dy),
-        static_cast<real>(metrics.dz_nominal), neighbors.west < 0,
-        neighbors.east < 0, neighbors.south < 0, neighbors.north < 0);
+        metrics.inv_dz_cell_metric.data(), metrics.nx, metrics.ny,
+        metrics.periodic_x, metrics.periodic_y, layout[n].i_begin,
+        layout[n].j_begin, static_cast<real>(metrics.dx),
+        static_cast<real>(metrics.dy), neighbors.west < 0, neighbors.east < 0,
+        neighbors.south < 0, neighbors.north < 0);
     GWM_CUDA_CHECK(cudaGetLastError());
 
     dim3 w_grid((layout[n].nx_local() + block.x - 1) / block.x,
@@ -350,9 +401,11 @@ void add_dry_momentum_flux_tendencies(
         mom_w_fields[n].storage().data(), u_cell[n].data(), v_cell[n].data(),
         w_cell[n].data(), out[n].mom_w.storage().data(), layout[n].nx_local(),
         layout[n].ny_local(), layout[n].nz, layout[n].halo,
-        static_cast<real>(metrics.dx), static_cast<real>(metrics.dy),
-        static_cast<real>(metrics.dz_nominal), neighbors.west < 0,
-        neighbors.east < 0, neighbors.south < 0, neighbors.north < 0);
+        metrics.inv_dz_face_metric.data(), metrics.nx, metrics.ny,
+        metrics.periodic_x, metrics.periodic_y, layout[n].i_begin,
+        layout[n].j_begin, static_cast<real>(metrics.dx),
+        static_cast<real>(metrics.dy), neighbors.west < 0, neighbors.east < 0,
+        neighbors.south < 0, neighbors.north < 0);
     GWM_CUDA_CHECK(cudaGetLastError());
   }
   sync_after_launches();

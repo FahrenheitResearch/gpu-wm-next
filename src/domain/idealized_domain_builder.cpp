@@ -45,12 +45,6 @@ IdealizedDomain build_rectilinear_domain(const RectilinearDomainConfig& config) 
                "RectilinearDomainConfig rank counts must be positive");
 
   IdealizedDomain domain{};
-  domain.metrics = GridMetrics::make_hybrid_height(config.nx, config.ny,
-                                                   config.nz, config.dx,
-                                                   config.dy, config.z_top);
-  domain.layout = comm::VirtualRankLayout::build(
-      config.nx, config.ny, config.nz, config.halo, config.ranks_x,
-      config.ranks_y, config.periodic_x, config.periodic_y);
   domain.terrain_dyn.resize(static_cast<std::size_t>(config.nx) * config.ny);
   for (int j = 0; j < config.ny; ++j) {
     for (int i = 0; i < config.nx; ++i) {
@@ -59,6 +53,13 @@ IdealizedDomain build_rectilinear_domain(const RectilinearDomainConfig& config) 
           cosine_mountain_height(config, i, j);
     }
   }
+  domain.metrics = GridMetrics::make_hybrid_height(
+      config.nx, config.ny, config.nz, config.dx, config.dy, config.z_top,
+      domain.terrain_dyn, config.terrain_taper_eta, config.periodic_x,
+      config.periodic_y);
+  domain.layout = comm::VirtualRankLayout::build(
+      config.nx, config.ny, config.nz, config.halo, config.ranks_x,
+      config.ranks_y, config.periodic_x, config.periodic_y);
   return domain;
 }
 

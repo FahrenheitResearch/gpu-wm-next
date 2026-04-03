@@ -37,7 +37,8 @@
 - next:
   - real MPI-backed halo exchange path once local/cluster MPI is available
   - terrain/hybrid-metric-aware dry operators on top of the now fuller dry core
-  - meaningful mountain-wave dry regression with the fast path active
+  - terrain hydrostatic-rest and mountain-wave dry regressions with the fast
+    path active
 
 ## stage2_moist
 
