@@ -93,4 +93,45 @@ state::Field3D<real> VirtualRankLayout::gather_scalar(
   return global;
 }
 
+state::FaceField<real> VirtualRankLayout::gather_face(
+    const std::vector<state::FaceField<real>>& fields,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    state::FaceOrientation orientation, const std::string& label) {
+  gwm::require(!layout.empty(), "Layout must not be empty in gather_face");
+
+  const int global_nx =
+      layout.front().global_nx +
+      (orientation == state::FaceOrientation::X ? 1 : 0);
+  const int global_ny =
+      layout.front().global_ny +
+      (orientation == state::FaceOrientation::Y ? 1 : 0);
+  const int global_nz =
+      layout.front().nz + (orientation == state::FaceOrientation::Z ? 1 : 0);
+
+  state::FaceField<real> global(layout.front().global_nx, layout.front().global_ny,
+                                layout.front().nz, 0, orientation, label);
+  global.storage().fill(0.0f);
+
+  for (std::size_t n = 0; n < layout.size(); ++n) {
+    const auto& desc = layout[n];
+    const auto& local = fields[n].storage();
+    gwm::require(fields[n].orientation() == orientation,
+                 "Face orientation mismatch in gather_face");
+    for (int k = 0; k < local.nz(); ++k) {
+      for (int j = 0; j < local.ny(); ++j) {
+        for (int i = 0; i < local.nx(); ++i) {
+          const int gi = desc.i_begin + i;
+          const int gj = desc.j_begin + j;
+          gwm::require(gi >= 0 && gi < global_nx && gj >= 0 && gj < global_ny &&
+                           k >= 0 && k < global_nz,
+                       "Out-of-range face gather index");
+          global.storage()(gi, gj, k) = local(i, j, k);
+        }
+      }
+    }
+  }
+
+  return global;
+}
+
 }  // namespace gwm::comm

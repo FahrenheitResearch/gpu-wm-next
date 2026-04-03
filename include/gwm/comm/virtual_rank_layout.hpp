@@ -5,6 +5,7 @@
 
 #include "gwm/core/types.hpp"
 #include "gwm/domain/subdomain_descriptor.hpp"
+#include "gwm/state/face_field.hpp"
 #include "gwm/state/field3d.hpp"
 
 namespace gwm::comm {
@@ -24,6 +25,12 @@ class VirtualRankLayout {
       const std::vector<state::Field3D<real>>& fields,
       const std::vector<domain::SubdomainDescriptor>& layout,
       const std::string& label = "gathered");
+
+  static state::FaceField<real> gather_face(
+      const std::vector<state::FaceField<real>>& fields,
+      const std::vector<domain::SubdomainDescriptor>& layout,
+      state::FaceOrientation orientation,
+      const std::string& label = "gathered_face");
 };
 
 }  // namespace gwm::comm

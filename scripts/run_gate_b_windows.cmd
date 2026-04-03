@@ -12,6 +12,9 @@ if errorlevel 1 exit /b 1
 "%BUILD%\test_dry_virtual_rank_equivalence.exe"
 if errorlevel 1 exit /b 1
 
+"%BUILD%\test_dry_momentum_virtual_rank_equivalence.exe"
+if errorlevel 1 exit /b 1
+
 "%BUILD%\test_dry_constant_state_bundle.exe"
 if errorlevel 1 exit /b 1
 
@@ -19,6 +22,9 @@ if errorlevel 1 exit /b 1
 if errorlevel 1 exit /b 1
 
 "%BUILD%\test_buoyancy_response.exe"
+if errorlevel 1 exit /b 1
+
+"%BUILD%\test_horizontal_pressure_response.exe"
 if errorlevel 1 exit /b 1
 
 exit /b 0

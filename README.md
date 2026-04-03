@@ -42,13 +42,18 @@ Current implementation status:
   - halo-aware dry conserved-state bundle
   - SSPRK3 dry-state scaffold
   - local split-explicit fast-mode interface
+  - EOS-consistent dry pressure reconstruction from `rho_d` and
+    `rho_d*theta_m`
+  - face-halo exchange for C-grid momentum fields
+  - horizontal pressure-gradient momentum coupling for `mom_u` and `mom_v`
   - buoyancy-driven vertical-momentum slow tendency for thermal perturbation
-    response
+    response in `mom_w`
   - hydrostatic-rest and dry-bundle regression binaries
-  - buoyancy-response regression for warm-bubble and density-current forcing
+  - buoyancy-response and horizontal-pressure-response regressions for
+    warm-bubble and density-current style forcing
   - idealized dry state initializers for warm-bubble, density-current, and
     mountain-wave background cases
-  - dry diagnostics summary helpers for mass/theta/vertical-momentum/extrema
+  - dry diagnostics summary helpers for mass/theta/momentum/extrema
   - native idealized driver executable (`gwm_idealized_driver`)
   - Python casebuilder wrapper for idealized YAML case files
 - external-tooling boundary is now codified for:
@@ -59,7 +64,7 @@ Current implementation status:
 
 Windows note:
 
-- The new dry-state regression binaries currently run cleanly through the local
-  wrapper scripts, and the Windows test wrapper forces synchronous CUDA launch
-  so CTest sees deterministic exits. `scripts/build_local_windows.ps1` is the
-  supported local validation path for now.
+- Full local validation now runs through `ctest` directly under
+  `scripts/build_local_windows.ps1`.
+- `scripts/run_gate_b_windows.cmd` remains available as a targeted Stage 1 dry
+  regression wrapper.

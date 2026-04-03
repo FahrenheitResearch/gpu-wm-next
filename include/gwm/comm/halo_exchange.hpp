@@ -3,9 +3,9 @@
 #include <vector>
 
 #include "gwm/comm/cartesian_topology.hpp"
-#include <vector>
 
 #include "gwm/domain/subdomain_descriptor.hpp"
+#include "gwm/state/face_field.hpp"
 #include "gwm/state/field3d.hpp"
 
 namespace gwm::comm {
@@ -44,6 +44,9 @@ class HaloExchange {
 
   static void exchange_scalar(std::vector<state::Field3D<real>>& fields,
                               const std::vector<domain::SubdomainDescriptor>& layout);
+
+  static void exchange_face(std::vector<state::FaceField<real>>& fields,
+                            const std::vector<domain::SubdomainDescriptor>& layout);
 };
 
 }  // namespace gwm::comm

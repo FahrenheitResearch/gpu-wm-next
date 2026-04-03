@@ -15,9 +15,13 @@ struct ScalarRange {
 struct DryStateSummary {
   double total_dry_mass = 0.0;
   double total_rho_theta_m = 0.0;
+  double total_horizontal_momentum_x = 0.0;
+  double total_horizontal_momentum_y = 0.0;
   double total_vertical_momentum = 0.0;
   ScalarRange rho_d;
   ScalarRange theta_m;
+  ScalarRange u_face;
+  ScalarRange v_face;
   ScalarRange w_face;
 };
 

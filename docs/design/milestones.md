@@ -18,6 +18,9 @@
 - rectangle-domain builder
 - dry conserved-state bundle (`rho_d`, `rho_d*theta_m`, face momentum)
 - hydrostatic-rest placeholder regression
+- EOS-consistent dry pressure reconstruction from conservative state
+- face-halo exchange for C-grid momentum fields
+- horizontal pressure-gradient momentum coupling for `mom_u` and `mom_v`
 - buoyancy-driven vertical-momentum response for thermal perturbations
 - cartesian-neighbor / face-buffer comm contract
 - MPI runtime boundary stub with clean no-MPI behavior
@@ -25,13 +28,14 @@
   background states
 - topography-aware idealized domain builder support
 - buoyancy-response regression for warm-bubble / density-current dry evolution
+- horizontal-pressure-response regression for centered thermal perturbations
 - dry diagnostics summary helpers
 - native idealized dry driver plus casebuilder wrapper for idealized YAML cases
 - next:
   - real MPI-backed halo exchange path once local/cluster MPI is available
-  - continuity/momentum/thermodynamic operator expansion beyond the current
-    buoyancy-only dry scaffold
-  - mountain-wave or density-current idealized regression
+  - split-explicit fast-mode implementation on top of the now pressure-coupled
+    dry core
+  - nonlinear momentum-flux transport and additional dry-wave regressions
 
 ## stage2_moist
 

@@ -5,6 +5,8 @@
 
 #include "gwm/comm/halo_exchange.hpp"
 #include "gwm/core/cuda_utils.hpp"
+#include "gwm/core/dry_thermo.hpp"
+#include "gwm/dycore/dry_pressure_gradient.hpp"
 
 namespace gwm::dycore {
 
@@ -68,28 +70,30 @@ __global__ void compute_cell_tendencies_kernel(
 
   const real rho_c = rho_d[cell_idx(i, j, k)];
   const real theta_c =
-      rho_theta_m[cell_idx(i, j, k)] / fmaxf(rho_c, 1.0e-6f);
+      gwm::core::dry_theta_from_conserved(rho_c, rho_theta_m[cell_idx(i, j, k)]);
 
   const real theta_w =
-      rho_theta_m[cell_idx(i - 1, j, k)] /
-      fmaxf(rho_d[cell_idx(i - 1, j, k)], 1.0e-6f);
+      gwm::core::dry_theta_from_conserved(rho_d[cell_idx(i - 1, j, k)],
+                                          rho_theta_m[cell_idx(i - 1, j, k)]);
   const real theta_e =
-      rho_theta_m[cell_idx(i + 1, j, k)] /
-      fmaxf(rho_d[cell_idx(i + 1, j, k)], 1.0e-6f);
+      gwm::core::dry_theta_from_conserved(rho_d[cell_idx(i + 1, j, k)],
+                                          rho_theta_m[cell_idx(i + 1, j, k)]);
   const real theta_s =
-      rho_theta_m[cell_idx(i, j - 1, k)] /
-      fmaxf(rho_d[cell_idx(i, j - 1, k)], 1.0e-6f);
+      gwm::core::dry_theta_from_conserved(rho_d[cell_idx(i, j - 1, k)],
+                                          rho_theta_m[cell_idx(i, j - 1, k)]);
   const real theta_n =
-      rho_theta_m[cell_idx(i, j + 1, k)] /
-      fmaxf(rho_d[cell_idx(i, j + 1, k)], 1.0e-6f);
+      gwm::core::dry_theta_from_conserved(rho_d[cell_idx(i, j + 1, k)],
+                                          rho_theta_m[cell_idx(i, j + 1, k)]);
 
   const real theta_b =
-      (k > 0) ? rho_theta_m[cell_idx(i, j, k - 1)] /
-                    fmaxf(rho_d[cell_idx(i, j, k - 1)], 1.0e-6f)
+      (k > 0) ? gwm::core::dry_theta_from_conserved(
+                    rho_d[cell_idx(i, j, k - 1)],
+                    rho_theta_m[cell_idx(i, j, k - 1)])
               : theta_c;
   const real theta_t =
-      (k + 1 < nz) ? rho_theta_m[cell_idx(i, j, k + 1)] /
-                         fmaxf(rho_d[cell_idx(i, j, k + 1)], 1.0e-6f)
+      (k + 1 < nz) ? gwm::core::dry_theta_from_conserved(
+                         rho_d[cell_idx(i, j, k + 1)],
+                         rho_theta_m[cell_idx(i, j, k + 1)])
                    : theta_c;
 
   const real flux_theta_w = mass_flux_w * (mass_flux_w >= 0.0f ? theta_w : theta_c);
@@ -360,8 +364,10 @@ void compute_slow_tendencies(
 
   std::vector<state::Field3D<real>> rho_fields;
   std::vector<state::Field3D<real>> rho_theta_fields;
+  std::vector<state::Field3D<real>> pressure_fields;
   rho_fields.reserve(states.size());
   rho_theta_fields.reserve(states.size());
+  pressure_fields.reserve(states.size());
   for (const auto& state : states) {
     rho_fields.push_back(state.rho_d.clone_empty_like("_rho_halo"));
     rho_fields.back().copy_all_from(state.rho_d);
@@ -371,6 +377,7 @@ void compute_slow_tendencies(
 
   comm::HaloExchange::exchange_scalar(rho_fields, layout);
   comm::HaloExchange::exchange_scalar(rho_theta_fields, layout);
+  compute_dry_pressure_fields(rho_fields, rho_theta_fields, pressure_fields);
 
   std::vector<double> theta_sum(static_cast<std::size_t>(metrics.nz), 0.0);
   std::vector<std::size_t> theta_count(static_cast<std::size_t>(metrics.nz), 0);
@@ -413,7 +420,13 @@ void compute_slow_tendencies(
         states[n].rho_d.nz(), states[n].rho_d.halo(),
         static_cast<real>(metrics.dx), static_cast<real>(metrics.dy), dz);
     GWM_CUDA_CHECK(cudaGetLastError());
+  }
 
+  add_horizontal_pressure_gradient_tendencies(pressure_fields, layout, metrics,
+                                              out);
+
+  for (std::size_t n = 0; n < states.size(); ++n) {
+    dim3 block(8, 8, 4);
     dim3 face_grid((states[n].rho_d.nx() + block.x - 1) / block.x,
                    (states[n].rho_d.ny() + block.y - 1) / block.y,
                    (states[n].rho_d.nz() + 1 + block.z - 1) / block.z);
@@ -462,6 +475,10 @@ void advance_dry_state_ssprk3(
                        config.dt, 1.0e-6f);
     update_stage_field(q1[n].rho_theta_m, states[n].rho_theta_m,
                        tendencies[n].rho_theta_m, config.dt, 1.0e-6f);
+    update_stage_field(q1[n].mom_u, states[n].mom_u, tendencies[n].mom_u,
+                       config.dt, -1.0e30f);
+    update_stage_field(q1[n].mom_v, states[n].mom_v, tendencies[n].mom_v,
+                       config.dt, -1.0e30f);
     update_stage_field(q1[n].mom_w, states[n].mom_w, tendencies[n].mom_w,
                        config.dt, -1.0e30f);
   }
@@ -476,13 +493,17 @@ void advance_dry_state_ssprk3(
                        config.dt, 1.0e-6f);
     update_stage_field(tmp[n].rho_theta_m, q1[n].rho_theta_m,
                        tendencies[n].rho_theta_m, config.dt, 1.0e-6f);
+    update_stage_field(tmp[n].mom_u, q1[n].mom_u, tendencies[n].mom_u,
+                       config.dt, -1.0e30f);
+    update_stage_field(tmp[n].mom_v, q1[n].mom_v, tendencies[n].mom_v,
+                       config.dt, -1.0e30f);
     update_stage_field(tmp[n].mom_w, q1[n].mom_w, tendencies[n].mom_w,
                        config.dt, -1.0e30f);
     blend_stage_field(q2[n].rho_d, q0[n].rho_d, tmp[n].rho_d, 0.75f, 0.25f);
     blend_stage_field(q2[n].rho_theta_m, q0[n].rho_theta_m, tmp[n].rho_theta_m,
                       0.75f, 0.25f);
-    q2[n].mom_u.storage().copy_all_from(q0[n].mom_u.storage());
-    q2[n].mom_v.storage().copy_all_from(q0[n].mom_v.storage());
+    blend_stage_field(q2[n].mom_u, q0[n].mom_u, tmp[n].mom_u, 0.75f, 0.25f);
+    blend_stage_field(q2[n].mom_v, q0[n].mom_v, tmp[n].mom_v, 0.75f, 0.25f);
     blend_stage_field(q2[n].mom_w, q0[n].mom_w, tmp[n].mom_w, 0.75f, 0.25f);
   }
   sync_after_launches();
@@ -496,14 +517,20 @@ void advance_dry_state_ssprk3(
                        config.dt, 1.0e-6f);
     update_stage_field(tmp[n].rho_theta_m, q2[n].rho_theta_m,
                        tendencies[n].rho_theta_m, config.dt, 1.0e-6f);
+    update_stage_field(tmp[n].mom_u, q2[n].mom_u, tendencies[n].mom_u,
+                       config.dt, -1.0e30f);
+    update_stage_field(tmp[n].mom_v, q2[n].mom_v, tendencies[n].mom_v,
+                       config.dt, -1.0e30f);
     update_stage_field(tmp[n].mom_w, q2[n].mom_w, tendencies[n].mom_w,
                        config.dt, -1.0e30f);
     blend_stage_field(states[n].rho_d, q0[n].rho_d, tmp[n].rho_d,
                       1.0f / 3.0f, 2.0f / 3.0f);
     blend_stage_field(states[n].rho_theta_m, q0[n].rho_theta_m,
                       tmp[n].rho_theta_m, 1.0f / 3.0f, 2.0f / 3.0f);
-    states[n].mom_u.storage().copy_all_from(q0[n].mom_u.storage());
-    states[n].mom_v.storage().copy_all_from(q0[n].mom_v.storage());
+    blend_stage_field(states[n].mom_u, q0[n].mom_u, tmp[n].mom_u,
+                      1.0f / 3.0f, 2.0f / 3.0f);
+    blend_stage_field(states[n].mom_v, q0[n].mom_v, tmp[n].mom_v,
+                      1.0f / 3.0f, 2.0f / 3.0f);
     blend_stage_field(states[n].mom_w, q0[n].mom_w, tmp[n].mom_w,
                       1.0f / 3.0f, 2.0f / 3.0f);
   }

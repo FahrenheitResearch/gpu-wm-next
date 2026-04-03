@@ -24,9 +24,7 @@ cmake -S "$repoRoot" -B "$repoRoot\$BuildDir" -G "$Generator" -DCMAKE_BUILD_TYPE
 if errorlevel 1 exit /b 1
 cmake --build "$repoRoot\$BuildDir" --parallel
 if errorlevel 1 exit /b 1
-ctest --test-dir "$repoRoot\$BuildDir" --output-on-failure -C $Configuration -E "test_dry_virtual_rank_equivalence|test_dry_constant_state_bundle|test_hydrostatic_rest|test_buoyancy_response"
-if errorlevel 1 exit /b 1
-call "$repoRoot\scripts\run_gate_b_windows.cmd"
+ctest --test-dir "$repoRoot\$BuildDir" --output-on-failure -C $Configuration
 "@
 
 cmd /c $configure

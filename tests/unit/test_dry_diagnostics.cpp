@@ -20,12 +20,20 @@ int main() {
 
   TEST_NEAR(summary.total_dry_mass, 4.0 * 3.0 * 2.0 * 1.5, 1.0e-6);
   TEST_NEAR(summary.total_rho_theta_m, 4.0 * 3.0 * 2.0 * 1.5 * 300.0, 1.0e-6);
+  TEST_NEAR(summary.total_horizontal_momentum_x,
+            5.0 * 3.0 * 2.0 * 1.5 * 2.0, 1.0e-6);
+  TEST_NEAR(summary.total_horizontal_momentum_y,
+            4.0 * 4.0 * 2.0 * 1.5 * -1.0, 1.0e-6);
   TEST_NEAR(summary.total_vertical_momentum,
             4.0 * 3.0 * 3.0 * 1.5 * 0.25, 1.0e-6);
   TEST_NEAR(summary.rho_d.min, 1.5, 1.0e-6);
   TEST_NEAR(summary.rho_d.max, 1.5, 1.0e-6);
   TEST_NEAR(summary.theta_m.min, 300.0, 1.0e-6);
   TEST_NEAR(summary.theta_m.max, 300.0, 1.0e-6);
+  TEST_NEAR(summary.u_face.min, 1.5 * 2.0, 1.0e-6);
+  TEST_NEAR(summary.u_face.max, 1.5 * 2.0, 1.0e-6);
+  TEST_NEAR(summary.v_face.min, 1.5 * -1.0, 1.0e-6);
+  TEST_NEAR(summary.v_face.max, 1.5 * -1.0, 1.0e-6);
   TEST_NEAR(summary.w_face.min, 1.5 * 0.25, 1.0e-6);
   TEST_NEAR(summary.w_face.max, 1.5 * 0.25, 1.0e-6);
 
