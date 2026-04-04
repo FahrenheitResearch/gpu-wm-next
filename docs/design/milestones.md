@@ -1,5 +1,13 @@
 # Milestones
 
+## execution_mode
+
+- default mode from this checkpoint forward: direct implementation
+- do not stop for routine GPT Pro checkpoints
+- use GPT Pro only for major architecture forks or expensive-to-reverse
+  milestone cuts
+- current checkpoint for that policy: `b2dfdad`
+
 ## stage0
 
 - buildable CMake/CUDA scaffold
@@ -53,6 +61,11 @@
 ## stage2_moist
 
 - land/surface state
+- minimal surface runtime spine:
+  - `SurfaceState`
+  - `SurfaceStaticProperties`
+  - shared neutral surface-layer closure
+  - tile aggregation helper for screen diagnostics / future fluxes
 - Monin-Obukhov surface layer
 - TKE PBL
 - warm-rain microphysics
@@ -61,6 +74,8 @@
 ## stage3_practical
 
 - HRRR and RRFS adapters
+- canonical ingest/runtime schema for analysis state and time-indexed boundary
+  cache metadata
 - casebuilder target-area workflow
 - severe-weather diagnostics/product set
 - restart/rerun loop

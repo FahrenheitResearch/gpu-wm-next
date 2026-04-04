@@ -7,8 +7,9 @@ level and surface state into 2 m / 10 m quantities.
 
 ## Discrete update
 
-The MVP scaffold uses a neutral-limit operator with explicit roughness-length
-dependence as the first analytic baseline.
+The current screen operators are a thin wrapper over the shared
+`surface_layer_closure` neutral-limit path. They do not own separate similarity
+math.
 
 ## Invariants / admissibility
 
@@ -16,13 +17,20 @@ dependence as the first analytic baseline.
   equal
 - scalar interpolation should remain bounded between surface and lowest-model
   level values in the neutral-limit baseline
+- wrapper outputs must match the shared closure outputs exactly within floating
+  point tolerance
 
 ## Assumptions for stability / consistency
 
 - target height is above effective roughness length
 - surface and lowest-model-level states are physically ordered
+- stability corrections remain deferred; the neutral-limit branch is the current
+  analytic baseline
 
 ## Test mapping
 
 - `tests/unit/test_surface_obsops.cpp`
+- `tests/unit/test_surface_layer_closure.cpp`
+- `tests/property/test_surface_tile_permutation.cpp`
+- `tests/regression/test_surface_layer_neutral_reference.cpp`
 - future stable/unstable Monin-Obukhov limit tests

@@ -44,6 +44,7 @@ add_library(
   src/dycore/dry_transport.cu
   src/ingest/source_catalog.cpp
   src/obsops/screen_obsops.cpp
+  src/surface/surface_layer_closure.cpp
 )
 
 target_include_directories(gwm_core PUBLIC include)
@@ -89,6 +90,7 @@ gwm_add_test(test_face_halo_exchange tests/unit/test_face_halo_exchange.cpp)
 gwm_add_test(test_scalar_halo_buffers tests/unit/test_scalar_halo_buffers.cpp)
 gwm_add_test(test_mpi_runtime tests/unit/test_mpi_runtime.cpp)
 gwm_add_test(test_source_catalog tests/unit/test_source_catalog.cpp)
+gwm_add_test(test_ingest_contracts tests/unit/test_ingest_contracts.cpp)
 gwm_add_test(test_dry_diagnostics tests/unit/test_dry_diagnostics.cpp)
 gwm_add_test(test_dry_fast_modes tests/unit/test_dry_fast_modes.cpp)
 gwm_add_test(test_dry_momentum_flux tests/unit/test_dry_momentum_flux.cpp)
@@ -107,7 +109,16 @@ gwm_add_test(
 )
 gwm_add_test(test_idealized_topography tests/unit/test_idealized_topography.cpp)
 gwm_add_test(test_idealized_cases tests/unit/test_idealized_cases.cpp)
+gwm_add_test(test_surface_state tests/unit/test_surface_state.cpp)
+gwm_add_test(
+  test_surface_static_properties
+  tests/unit/test_surface_static_properties.cpp
+)
 gwm_add_test(test_surface_obsops tests/unit/test_surface_obsops.cpp)
+gwm_add_test(
+  test_surface_layer_closure
+  tests/unit/test_surface_layer_closure.cpp
+)
 gwm_add_test(
   test_virtual_rank_equivalence
   tests/property/test_virtual_rank_equivalence.cpp

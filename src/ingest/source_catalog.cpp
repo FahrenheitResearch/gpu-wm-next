@@ -22,6 +22,10 @@ std::string to_string(SourceKind kind) {
   throw std::runtime_error("Unknown SourceKind");
 }
 
+bool is_first_class_source(SourceKind kind) {
+  return kind == SourceKind::HRRR || kind == SourceKind::RRFS;
+}
+
 std::unique_ptr<SourceAdapter> make_adapter(SourceKind kind) {
   switch (kind) {
     case SourceKind::HRRR:

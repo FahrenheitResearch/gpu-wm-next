@@ -16,6 +16,7 @@ struct ExternalToolDescriptor {
 };
 
 [[nodiscard]] std::string to_string(SourceKind kind);
+[[nodiscard]] bool is_first_class_source(SourceKind kind);
 [[nodiscard]] std::unique_ptr<SourceAdapter> make_adapter(SourceKind kind);
 [[nodiscard]] std::vector<std::unique_ptr<SourceAdapter>> make_default_adapters();
 [[nodiscard]] std::vector<ExternalToolDescriptor> recommended_external_tools();
