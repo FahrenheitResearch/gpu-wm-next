@@ -67,8 +67,14 @@ The source-run bundle is a directory-level contract that ties together:
 This bundle is not a restart format. It is the source-to-runtime-to-product
 bridge used for verification and map generation.
 
-For the first moisture/tracer runtime milestone, the prepared-case bridge is
-expected to preserve `specific_humidity` as the canonical runtime/product name.
+For the current warm-rain runtime milestone, the prepared-case bridge is
+expected to preserve `specific_humidity` as the canonical runtime/product
+name while allowing the runtime tracer set to grow to:
+
+- `specific_humidity`
+- `cloud_water_mixing_ratio`
+- `rain_water_mixing_ratio`
+
 The `water_vapor_mixing_ratio` alias remains acceptable only at the source
 decode / ingest edge while the bridge is still being tightened.
 
@@ -85,6 +91,10 @@ with moisture diagnostics derived from the populated analysis humidity field.
 - plan-view bundles must preserve row-major storage and exact field sizes
 - moist enrichment fields, when present, must preserve the same plan-view slice
   shape and naming contract as dry fields
+- prepared-case `summary.json` should remain finite and now includes:
+  - dry totals/ranges
+  - tracer totals/ranges
+  - vapor/cloud/rain/condensed/total water masses
 
 ## Assumptions for Stability / Consistency
 
@@ -93,6 +103,7 @@ with moisture diagnostics derived from the populated analysis humidity field.
 - the humidity alias is transitional and accepted only during the bridge period
 - canonical runtime and product outputs should prefer `specific_humidity`
   even when the ingest bridge accepted an alias on input
+- warm-rain summary sidecars are proof/report artifacts, not restart truth
 - the source-run bundle should be stable enough to support first real maps
   before full moist physics lands
 
@@ -101,6 +112,8 @@ with moisture diagnostics derived from the populated analysis humidity field.
 - `tests/unit/test_runtime_case.cpp`
 - `tests/unit/test_ingest_contracts.cpp`
 - `tests/unit/test_tracer_registry.cpp`
+- `tests/unit/test_runtime_summary.cpp`
+- `tests/regression/test_warm_rain_summary_closure.cpp`
 - `tools/verify/run_verification.py`
 - `tools/verify/test_source_run_bundle.py`
 - `tools/verify/render_plan_view_maps.py`

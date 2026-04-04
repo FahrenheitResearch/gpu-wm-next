@@ -23,9 +23,14 @@ not part of the runtime state contract and should not appear as the canonical
 product name in tracer-aware outputs.
 
 At the current checkpoint, the source-driven product bridge can already append
-moist diagnostics from populated companion analysis data while full runtime
-tracer transport is still being integrated. That does not change the canonical
-runtime tracer naming contract above.
+moist diagnostics from populated companion analysis data, and the first
+registry-managed warm-rain tracer set is active in the runtime:
+
+- `specific_humidity`
+- `cloud_water_mixing_ratio`
+- `rain_water_mixing_ratio`
+
+That does not change the canonical runtime naming contract above.
 
 ## Invariants / admissibility
 
@@ -33,6 +38,7 @@ runtime tracer naming contract above.
 - constant-state preservation
 - tracer non-negativity when a positivity limiter is enabled
 - canonical tracer names remain stable across the runtime/product boundary
+- warm-rain source terms conserve total water in the closed-box milestone cut
 
 ## Assumptions for stability / consistency
 
@@ -41,10 +47,13 @@ runtime tracer naming contract above.
 - tracer fluxes use the same geometry/sign conventions as dry mass
 - first moist diagnostic products derived from tracer state are products, not
   canonical prognostic state
+- warm-rain microphysics stays local and does not widen `DryState`
 
 ## Test mapping
 
 - `tests/regression/test_constant_state.cpp`
 - `tests/regression/test_scalar_mass_conservation.cpp`
 - `tests/unit/test_tracer_registry.cpp`
-- future hydrostatic-rest and tracer-positivity tests
+- `tests/unit/test_warm_rain_microphysics.cpp`
+- `tests/regression/test_warm_rain_closed_box.cpp`
+- `tests/regression/test_warm_rain_summary_closure.cpp`

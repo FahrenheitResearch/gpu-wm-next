@@ -159,6 +159,11 @@ def main() -> None:
         in {
             "specific_humidity",
             "specific_humidity_2m",
+            "cloud_water_mixing_ratio",
+            "rain_water_mixing_ratio",
+            "total_condensate",
+            "column_rain_water",
+            "synthetic_reflectivity",
             "relative_humidity",
             "relative_humidity_2m",
             "dewpoint",

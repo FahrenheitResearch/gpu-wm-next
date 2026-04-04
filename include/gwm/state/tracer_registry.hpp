@@ -15,6 +15,10 @@ struct TracerSpec {
 };
 
 inline constexpr const char* kSpecificHumidityTracerName = "specific_humidity";
+inline constexpr const char* kCloudWaterTracerName =
+    "cloud_water_mixing_ratio";
+inline constexpr const char* kRainWaterTracerName =
+    "rain_water_mixing_ratio";
 
 class TracerRegistry {
  public:
@@ -47,6 +51,14 @@ class TracerRegistry {
 [[nodiscard]] inline TracerRegistry make_specific_humidity_registry() {
   TracerRegistry registry;
   registry.add({kSpecificHumidityTracerName, "kg/kg", true});
+  return registry;
+}
+
+[[nodiscard]] inline TracerRegistry make_warm_rain_registry() {
+  TracerRegistry registry;
+  registry.add({kSpecificHumidityTracerName, "kg/kg", true});
+  registry.add({kCloudWaterTracerName, "kg/kg", true});
+  registry.add({kRainWaterTracerName, "kg/kg", true});
   return registry;
 }
 

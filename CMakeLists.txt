@@ -34,6 +34,7 @@ add_library(
   src/comm/virtual_rank_layout.cpp
   src/comm/halo_exchange.cpp
   src/comm/mpi_runtime.cpp
+  src/core/runtime_summary.cpp
   src/domain/idealized_domain_builder.cpp
   src/dycore/dry_core.cu
   src/dycore/boundary_conditions.cpp
@@ -49,6 +50,7 @@ add_library(
   src/ingest/source_catalog.cpp
   src/io/plan_view_output.cpp
   src/obsops/screen_obsops.cpp
+  src/physics/warm_rain.cu
   src/surface/surface_layer_closure.cpp
   src/surface/surface_layer_exchange.cpp
 )
@@ -103,8 +105,13 @@ gwm_add_test(test_mpi_runtime tests/unit/test_mpi_runtime.cpp)
 gwm_add_test(test_source_catalog tests/unit/test_source_catalog.cpp)
 gwm_add_test(test_ingest_contracts tests/unit/test_ingest_contracts.cpp)
 gwm_add_test(test_runtime_case tests/unit/test_runtime_case.cpp)
+gwm_add_test(test_runtime_summary tests/unit/test_runtime_summary.cpp)
 gwm_add_test(test_prepared_case_init tests/unit/test_prepared_case_init.cpp)
 gwm_add_test(test_plan_view_output tests/unit/test_plan_view_output.cpp)
+gwm_add_test(
+  test_warm_rain_microphysics
+  tests/unit/test_warm_rain_microphysics.cpp
+)
 gwm_add_test(test_dry_diagnostics tests/unit/test_dry_diagnostics.cpp)
 gwm_add_test(test_dry_fast_modes tests/unit/test_dry_fast_modes.cpp)
 gwm_add_test(test_dry_momentum_flux tests/unit/test_dry_momentum_flux.cpp)
@@ -231,4 +238,12 @@ gwm_add_test(
 gwm_add_test(
   test_scalar_mass_conservation
   tests/regression/test_scalar_mass_conservation.cpp
+)
+gwm_add_test(
+  test_warm_rain_closed_box
+  tests/regression/test_warm_rain_closed_box.cpp
+)
+gwm_add_test(
+  test_warm_rain_summary_closure
+  tests/regression/test_warm_rain_summary_closure.cpp
 )

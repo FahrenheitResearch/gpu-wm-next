@@ -8,6 +8,7 @@
 #include "gwm/dycore/dry_core.hpp"
 #include "gwm/dycore/passive_tracer.hpp"
 #include "gwm/ingest/runtime_case.hpp"
+#include "gwm/state/tracer_registry.hpp"
 #include "gwm/state/tracer_state.hpp"
 
 namespace gwm::ingest {
@@ -38,6 +39,20 @@ make_specific_humidity_tracers_from_analysis(
     const std::vector<dycore::DryState>& dry_states,
     const std::vector<domain::SubdomainDescriptor>& layout,
     const std::string& label_prefix = "prepared_case_qv");
+
+[[nodiscard]] std::vector<state::TracerState>
+make_warm_rain_tracers_from_analysis(
+    const AnalysisStateIR& analysis,
+    const std::vector<dycore::DryState>& dry_states,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const std::string& label_prefix = "prepared_case_warm_rain");
+
+[[nodiscard]] std::vector<state::TracerState> make_tracers_from_analysis(
+    const AnalysisStateIR& analysis,
+    const std::vector<dycore::DryState>& dry_states,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const state::TracerRegistry& registry,
+    const std::string& label_prefix = "prepared_case_tracer");
 
 class PreparedCaseBoundaryUpdater final : public dycore::BoundaryUpdater {
  public:

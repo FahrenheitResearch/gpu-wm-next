@@ -11,9 +11,10 @@
 
 #include "gwm/comm/virtual_rank_layout.hpp"
 #include "gwm/core/dry_thermo.hpp"
+#include "gwm/core/moist_thermo.hpp"
 #include "gwm/core/cuda_utils.hpp"
 #include "gwm/ingest/runtime_case.hpp"
-#include "gwm/surface/surface_layer_closure.hpp"
+#include "gwm/state/tracer_registry.hpp"
 
 namespace gwm::io {
 
@@ -23,6 +24,34 @@ using gwm::state::FaceOrientation;
 
 constexpr real kMinRho = 1.0e-6f;
 constexpr real kMinPressurePa = 1.0f;
+
+std::vector<state::Field3D<real>> derive_tracer_mixing_ratio_fields(
+    const std::vector<dycore::DryState>& states,
+    const std::vector<state::TracerState>& tracers,
+    const std::string& tracer_name, const std::string& label_suffix);
+
+std::vector<state::Field3D<real>> derive_total_condensate_fields(
+    const std::vector<state::Field3D<real>>& cloud_fields,
+    const std::vector<state::Field3D<real>>& rain_fields);
+
+std::vector<double> derive_column_rain_water_map(
+    const std::vector<dycore::DryState>& states,
+    const std::vector<state::TracerState>& tracers,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics);
+
+std::vector<double> derive_synthetic_reflectivity_map(
+    const std::vector<dycore::DryState>& states,
+    const std::vector<state::TracerState>& tracers,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics);
+
+bool tracer_present_in_all_states(const std::vector<state::TracerState>& tracers,
+                                  const std::string& tracer_name) {
+  return std::all_of(tracers.begin(), tracers.end(), [&](const auto& tracer_state) {
+    return tracer_state.find(tracer_name).has_value();
+  });
+}
 
 std::vector<state::Field3D<real>> derive_theta_fields(
     const std::vector<dycore::DryState>& states) {
@@ -178,17 +207,25 @@ std::vector<state::Field3D<real>> derive_temperature_fields(
 std::vector<state::Field3D<real>> derive_specific_humidity_fields(
     const std::vector<dycore::DryState>& states,
     const std::vector<state::TracerState>& tracers) {
+  return derive_tracer_mixing_ratio_fields(
+      states, tracers, gwm::state::kSpecificHumidityTracerName,
+      "_specific_humidity_output");
+}
+
+std::vector<state::Field3D<real>> derive_tracer_mixing_ratio_fields(
+    const std::vector<dycore::DryState>& states,
+    const std::vector<state::TracerState>& tracers,
+    const std::string& tracer_name, const std::string& label_suffix) {
   gwm::require(states.size() == tracers.size(),
-               "Dry-state/tracer count mismatch in qv derivation");
+               "Dry-state/tracer count mismatch in tracer derivation");
   std::vector<state::Field3D<real>> fields;
   fields.reserve(states.size());
   for (std::size_t n = 0; n < states.size(); ++n) {
-    const auto qv_index =
-        tracers[n].find(gwm::state::kSpecificHumidityTracerName);
-    gwm::require(qv_index.has_value(),
-                 "specific_humidity tracer missing from runtime tracer state");
-    auto field = states[n].rho_d.clone_empty_like("_specific_humidity_output");
-    const auto& rho_q = tracers[n].mass(*qv_index);
+    const auto tracer_index = tracers[n].find(tracer_name);
+    gwm::require(tracer_index.has_value(),
+                 tracer_name + " tracer missing from runtime tracer state");
+    auto field = states[n].rho_d.clone_empty_like(label_suffix);
+    const auto& rho_q = tracers[n].mass(*tracer_index);
     for (int k = 0; k < field.nz(); ++k) {
       for (int j = 0; j < field.ny(); ++j) {
         for (int i = 0; i < field.nx(); ++i) {
@@ -200,6 +237,125 @@ std::vector<state::Field3D<real>> derive_specific_humidity_fields(
     fields.push_back(std::move(field));
   }
   return fields;
+}
+
+std::vector<state::Field3D<real>> derive_total_condensate_fields(
+    const std::vector<state::Field3D<real>>& cloud_fields,
+    const std::vector<state::Field3D<real>>& rain_fields) {
+  gwm::require(cloud_fields.size() == rain_fields.size(),
+               "cloud/rain field count mismatch in condensate derivation");
+  std::vector<state::Field3D<real>> fields;
+  fields.reserve(cloud_fields.size());
+  for (std::size_t n = 0; n < cloud_fields.size(); ++n) {
+    auto field = cloud_fields[n].clone_empty_like("_total_condensate_output");
+    for (int k = 0; k < field.nz(); ++k) {
+      for (int j = 0; j < field.ny(); ++j) {
+        for (int i = 0; i < field.nx(); ++i) {
+          field(i, j, k) = cloud_fields[n](i, j, k) + rain_fields[n](i, j, k);
+        }
+      }
+    }
+    fields.push_back(std::move(field));
+  }
+  return fields;
+}
+
+std::vector<double> derive_column_rain_water_map(
+    const std::vector<dycore::DryState>& states,
+    const std::vector<state::TracerState>& tracers,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics) {
+  gwm::require(states.size() == tracers.size() &&
+                   states.size() == layout.size(),
+               "State/tracer/layout mismatch in column rain-water derivation");
+  std::vector<std::vector<double>> maps(
+      states.size(),
+      std::vector<double>(static_cast<std::size_t>(metrics.nx) *
+                              static_cast<std::size_t>(metrics.ny),
+                          0.0));
+  for (std::size_t n = 0; n < states.size(); ++n) {
+    const auto qr_index = tracers[n].find(gwm::state::kRainWaterTracerName);
+    if (!qr_index.has_value()) {
+      continue;
+    }
+    const auto& rho_qr = tracers[n].mass(*qr_index);
+    const auto& desc = layout[n];
+    for (int j = 0; j < desc.ny_local(); ++j) {
+      for (int i = 0; i < desc.nx_local(); ++i) {
+        double column = 0.0;
+        for (int k = 0; k < desc.nz; ++k) {
+          column += static_cast<double>(rho_qr(i, j, k)) *
+                    static_cast<double>(
+                        1.0f / metrics.inv_dz_cell(desc.i_begin + i,
+                                                    desc.j_begin + j, k));
+        }
+        const auto global_index =
+            static_cast<std::size_t>(desc.j_begin + j) *
+                static_cast<std::size_t>(metrics.nx) +
+            static_cast<std::size_t>(desc.i_begin + i);
+        maps[n][global_index] = column;
+      }
+    }
+  }
+  std::vector<double> combined(static_cast<std::size_t>(metrics.nx) *
+                                   static_cast<std::size_t>(metrics.ny),
+                               0.0);
+  for (const auto& map : maps) {
+    for (std::size_t idx = 0; idx < combined.size(); ++idx) {
+      if (map[idx] != 0.0) {
+        combined[idx] = map[idx];
+      }
+    }
+  }
+  return combined;
+}
+
+std::vector<double> derive_synthetic_reflectivity_map(
+    const std::vector<dycore::DryState>& states,
+    const std::vector<state::TracerState>& tracers,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics) {
+  gwm::require(states.size() == tracers.size() &&
+                   states.size() == layout.size(),
+               "State/tracer/layout mismatch in reflectivity derivation");
+  std::vector<std::vector<double>> maps(
+      states.size(),
+      std::vector<double>(static_cast<std::size_t>(metrics.nx) *
+                              static_cast<std::size_t>(metrics.ny),
+                          -20.0));
+  for (std::size_t n = 0; n < states.size(); ++n) {
+    const auto qr_index = tracers[n].find(gwm::state::kRainWaterTracerName);
+    if (!qr_index.has_value()) {
+      continue;
+    }
+    const auto& rho_qr = tracers[n].mass(*qr_index);
+    const auto& desc = layout[n];
+    for (int j = 0; j < desc.ny_local(); ++j) {
+      for (int i = 0; i < desc.nx_local(); ++i) {
+        real dbz = -20.0f;
+        for (int k = 0; k < desc.nz; ++k) {
+          const real rho = states[n].rho_d(i, j, k);
+          const real qr = rho_qr(i, j, k) / std::max(rho, kMinRho);
+          dbz = std::max(
+              dbz, gwm::core::synthetic_reflectivity_dbz_from_rain(rho, qr));
+        }
+        const auto global_index =
+            static_cast<std::size_t>(desc.j_begin + j) *
+                static_cast<std::size_t>(metrics.nx) +
+            static_cast<std::size_t>(desc.i_begin + i);
+        maps[n][global_index] = static_cast<double>(dbz);
+      }
+    }
+  }
+  std::vector<double> combined(static_cast<std::size_t>(metrics.nx) *
+                                   static_cast<std::size_t>(metrics.ny),
+                               -20.0);
+  for (const auto& map : maps) {
+    for (std::size_t idx = 0; idx < combined.size(); ++idx) {
+      combined[idx] = std::max(combined[idx], map[idx]);
+    }
+  }
+  return combined;
 }
 
 std::vector<state::Field3D<real>> derive_relative_humidity_fields(
@@ -216,10 +372,9 @@ std::vector<state::Field3D<real>> derive_relative_humidity_fields(
     for (int k = 0; k < field.nz(); ++k) {
       for (int j = 0; j < field.ny(); ++j) {
         for (int i = 0; i < field.nx(); ++i) {
-          field(i, j, k) =
-              surface::relative_humidity_from_specific_humidity(
-                  q_fields[n](i, j, k), temperature_fields[n](i, j, k),
-                  pressure_fields[n](i, j, k));
+          field(i, j, k) = core::relative_humidity_from_specific_humidity(
+              q_fields[n](i, j, k), temperature_fields[n](i, j, k),
+              pressure_fields[n](i, j, k));
         }
       }
     }
@@ -240,7 +395,7 @@ std::vector<state::Field3D<real>> derive_dewpoint_fields(
     for (int k = 0; k < field.nz(); ++k) {
       for (int j = 0; j < field.ny(); ++j) {
         for (int i = 0; i < field.nx(); ++i) {
-          field(i, j, k) = surface::dewpoint_from_specific_humidity(
+          field(i, j, k) = core::dewpoint_from_specific_humidity(
               q_fields[n](i, j, k), pressure_fields[n](i, j, k));
         }
       }
@@ -496,6 +651,45 @@ PlanViewBundle extract_runtime_plan_view(
   set_or_append_field(bundle,
                       make_slice_field("dewpoint", "K", dewpoint_global,
                                        clamped_k));
+  if (tracer_present_in_all_states(tracers, gwm::state::kCloudWaterTracerName) &&
+      tracer_present_in_all_states(tracers, gwm::state::kRainWaterTracerName)) {
+    const auto qc_fields = derive_tracer_mixing_ratio_fields(
+        states, tracers, gwm::state::kCloudWaterTracerName,
+        "_cloud_water_output");
+    const auto qr_fields = derive_tracer_mixing_ratio_fields(
+        states, tracers, gwm::state::kRainWaterTracerName,
+        "_rain_water_output");
+    const auto condensate_fields =
+        derive_total_condensate_fields(qc_fields, qr_fields);
+    const auto qc_global = comm::VirtualRankLayout::gather_scalar(
+        qc_fields, layout, "cloud_water_plan_view");
+    const auto qr_global = comm::VirtualRankLayout::gather_scalar(
+        qr_fields, layout, "rain_water_plan_view");
+    const auto condensate_global = comm::VirtualRankLayout::gather_scalar(
+        condensate_fields, layout, "condensate_plan_view");
+    const auto column_rain = derive_column_rain_water_map(
+        states, tracers, layout, metrics);
+    const auto reflectivity = derive_synthetic_reflectivity_map(
+        states, tracers, layout, metrics);
+
+    set_or_append_field(bundle,
+                        make_slice_field(gwm::state::kCloudWaterTracerName,
+                                         "kg kg^-1", qc_global, clamped_k));
+    set_or_append_field(bundle,
+                        make_slice_field(gwm::state::kRainWaterTracerName,
+                                         "kg kg^-1", qr_global, clamped_k));
+    set_or_append_field(bundle,
+                        make_slice_field("total_condensate", "kg kg^-1",
+                                         condensate_global, clamped_k));
+    set_or_append_field(bundle,
+                        make_flat_slice_field("column_rain_water", "kg m^-2",
+                                              metrics.nx, metrics.ny,
+                                              std::move(column_rain)));
+    set_or_append_field(bundle,
+                        make_flat_slice_field("synthetic_reflectivity", "dBZ",
+                                              metrics.nx, metrics.ny,
+                                              std::move(reflectivity)));
+  }
   return bundle;
 }
 
@@ -539,10 +733,10 @@ void enrich_plan_view_bundle_from_prepared_case(
             static_cast<real>(temperature_field->values.at(flat_idx));
         q_values.push_back(static_cast<double>(q));
         rh_values.push_back(static_cast<double>(
-            surface::relative_humidity_from_specific_humidity(
+            core::relative_humidity_from_specific_humidity(
                 q, temperature, std::max(pressure, kMinPressurePa))));
         dewpoint_values.push_back(static_cast<double>(
-            surface::dewpoint_from_specific_humidity(
+            core::dewpoint_from_specific_humidity(
                 q, std::max(pressure, kMinPressurePa))));
       }
     }
@@ -596,10 +790,10 @@ void enrich_plan_view_bundle_from_prepared_case(
         const real q2 = std::max(q2_it->second[idx], 0.0f);
         const real pressure = std::max(p2_it->second[idx], kMinPressurePa);
         rh2_values.push_back(static_cast<double>(
-            surface::relative_humidity_from_specific_humidity(
+            core::relative_humidity_from_specific_humidity(
                 q2, t2[idx], pressure)));
         dewpoint2_values.push_back(static_cast<double>(
-            surface::dewpoint_from_specific_humidity(q2, pressure)));
+            core::dewpoint_from_specific_humidity(q2, pressure)));
       }
       set_or_append_field(bundle,
                           make_flat_slice_field("relative_humidity_2m", "%",

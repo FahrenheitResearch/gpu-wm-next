@@ -21,6 +21,11 @@ BUNDLE_OPTIONAL_CANDIDATES = {
 MOIST_FIELD_LIMITS = {
     "specific_humidity": {"min": 0.0, "max": 1.0},
     "specific_humidity_2m": {"min": 0.0, "max": 1.0},
+    "cloud_water_mixing_ratio": {"min": 0.0, "max": 1.0},
+    "rain_water_mixing_ratio": {"min": 0.0, "max": 1.0},
+    "total_condensate": {"min": 0.0, "max": 1.0},
+    "column_rain_water": {"min": 0.0, "max": 1.0e6},
+    "synthetic_reflectivity": {"min": -50.0, "max": 100.0},
     "relative_humidity": {"min": 0.0, "max": 150.0},
     "relative_humidity_2m": {"min": 0.0, "max": 150.0},
 }

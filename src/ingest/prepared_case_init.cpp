@@ -176,12 +176,98 @@ std::vector<state::TracerState> make_specific_humidity_tracers_from_analysis(
     const std::vector<dycore::DryState>& dry_states,
     const std::vector<domain::SubdomainDescriptor>& layout,
     const std::string& label_prefix) {
-  validate_runtime_analysis(analysis);
-  const auto& specific_humidity =
-      analysis.atmosphere.values.at("specific_humidity");
-  return dycore::make_specific_humidity_tracers_from_global_field(
-      dry_states, layout, analysis.grid.nx, analysis.grid.ny, specific_humidity,
+  return make_tracers_from_analysis(
+      analysis, dry_states, layout, state::make_specific_humidity_registry(),
       label_prefix);
+}
+
+std::vector<state::TracerState> make_tracers_from_analysis(
+    const AnalysisStateIR& analysis,
+    const std::vector<dycore::DryState>& dry_states,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const state::TracerRegistry& registry, const std::string& label_prefix) {
+  validate_runtime_analysis(analysis);
+  gwm::require(dry_states.size() == layout.size(),
+               "Dry-state/layout size mismatch in make_tracers_from_analysis");
+
+  std::vector<state::TracerState> tracers;
+  tracers.reserve(layout.size());
+  for (const auto& desc : layout) {
+    state::TracerState tracer_state(registry, desc.nx_local(), desc.ny_local(),
+                                    desc.nz, desc.halo,
+                                    label_prefix + "_rank_" +
+                                        std::to_string(desc.rank));
+    tracer_state.fill_zero();
+    tracers.push_back(std::move(tracer_state));
+  }
+
+  for (std::size_t tracer_index = 0; tracer_index < registry.size();
+       ++tracer_index) {
+    const auto& spec = registry.at(static_cast<int>(tracer_index));
+    if (spec.name == state::kSpecificHumidityTracerName) {
+      const auto& specific_humidity =
+          analysis.atmosphere.values.at(state::kSpecificHumidityTracerName);
+      gwm::require(
+          specific_humidity.size() == analysis.grid.cell_count_3d(),
+          "specific_humidity analysis field size mismatch");
+      for (std::size_t rank = 0; rank < layout.size(); ++rank) {
+        const auto& desc = layout[rank];
+        auto& rho_q = tracers[rank].mass(spec.name);
+        for (int j = 0; j < desc.ny_local(); ++j) {
+          const int j_global = desc.j_begin + j;
+          for (int i = 0; i < desc.nx_local(); ++i) {
+            const int i_global = desc.i_begin + i;
+            for (int k = 0; k < desc.nz; ++k) {
+              const auto idx = linear_index_3d(i_global, j_global, k,
+                                               analysis.grid.nx,
+                                               analysis.grid.ny);
+              rho_q(i, j, k) =
+                  dry_states[rank].rho_d(i, j, k) * specific_humidity[idx];
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    const auto field_it = analysis.atmosphere.values.find(spec.name);
+    if (field_it == analysis.atmosphere.values.end()) {
+      continue;
+    }
+    const auto& mixing_ratio = field_it->second;
+    gwm::require(
+        mixing_ratio.size() == analysis.grid.cell_count_3d(),
+        "Tracer analysis field size mismatch for " + spec.name);
+    for (std::size_t rank = 0; rank < layout.size(); ++rank) {
+      const auto& desc = layout[rank];
+      auto& rho_q = tracers[rank].mass(spec.name);
+      for (int j = 0; j < desc.ny_local(); ++j) {
+        const int j_global = desc.j_begin + j;
+        for (int i = 0; i < desc.nx_local(); ++i) {
+          const int i_global = desc.i_begin + i;
+          for (int k = 0; k < desc.nz; ++k) {
+            const auto idx = linear_index_3d(i_global, j_global, k,
+                                             analysis.grid.nx,
+                                             analysis.grid.ny);
+            rho_q(i, j, k) =
+                dry_states[rank].rho_d(i, j, k) * mixing_ratio[idx];
+          }
+        }
+      }
+    }
+  }
+
+  return tracers;
+}
+
+std::vector<state::TracerState> make_warm_rain_tracers_from_analysis(
+    const AnalysisStateIR& analysis,
+    const std::vector<dycore::DryState>& dry_states,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const std::string& label_prefix) {
+  return make_tracers_from_analysis(analysis, dry_states, layout,
+                                    state::make_warm_rain_registry(),
+                                    label_prefix);
 }
 
 PreparedCaseBoundaryUpdater::PreparedCaseBoundaryUpdater(
@@ -227,7 +313,7 @@ void PreparedCaseTracerBoundaryUpdater::set_step_start_time(
 void PreparedCaseTracerBoundaryUpdater::apply(
     std::vector<state::TracerState>& states,
     const std::vector<domain::SubdomainDescriptor>& layout, real sim_time) {
-  if (cache_.empty()) {
+  if (cache_.empty() || states.empty()) {
     return;
   }
 
@@ -240,8 +326,9 @@ void PreparedCaseTracerBoundaryUpdater::apply(
   boundary_analysis.surface = snapshot.surface;
   const auto boundary_dry_states =
       make_dry_states_from_analysis(boundary_analysis, layout, "boundary_ref");
-  const auto boundary_tracers = make_specific_humidity_tracers_from_analysis(
-      boundary_analysis, boundary_dry_states, layout, "boundary_qv");
+  const auto boundary_tracers = make_tracers_from_analysis(
+      boundary_analysis, boundary_dry_states, layout,
+      states.front().registry(), "boundary_tracer");
   dycore::apply_reference_boundaries(states, boundary_tracers, layout);
 }
 

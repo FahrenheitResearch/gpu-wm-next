@@ -45,8 +45,10 @@ def main() -> None:
         image_dir.mkdir(parents=True, exist_ok=True)
         image_path = image_dir / "rho_d.png"
         qv_image_path = image_dir / "specific_humidity.png"
+        refl_image_path = image_dir / "synthetic_reflectivity.png"
         write_text(image_path, "placeholder image")
         write_text(qv_image_path, "placeholder image")
+        write_text(refl_image_path, "placeholder image")
 
         prepared_case_manifest = {
             "schema_version": "gwm-next-prepared-case/v1",
@@ -215,11 +217,31 @@ def main() -> None:
             "initial": {
                 "total_dry_mass": 8.0,
                 "total_rho_theta_m": 2400.0,
+                "moisture": {
+                    "vapor_water_mass": 0.08,
+                    "cloud_water_mass": 0.0,
+                    "rain_water_mass": 0.0,
+                    "condensed_water_mass": 0.0,
+                    "total_water_mass": 0.08,
+                },
                 "tracers": {
                     "specific_humidity": {
+                        "units": "kg/kg",
+                        "positive": True,
                         "total_mass": 0.08,
-                        "min": 0.01,
-                        "max": 0.01,
+                        "mixing_ratio": {"min": 0.01, "max": 0.01},
+                    },
+                    "cloud_water_mixing_ratio": {
+                        "units": "kg/kg",
+                        "positive": True,
+                        "total_mass": 0.0,
+                        "mixing_ratio": {"min": 0.0, "max": 0.0},
+                    },
+                    "rain_water_mixing_ratio": {
+                        "units": "kg/kg",
+                        "positive": True,
+                        "total_mass": 0.0,
+                        "mixing_ratio": {"min": 0.0, "max": 0.0},
                     }
                 },
             },
@@ -227,11 +249,31 @@ def main() -> None:
                 "total_dry_mass": 8.0,
                 "total_rho_theta_m": 2400.0,
                 "w_face": {"min": -0.1, "max": 0.1},
+                "moisture": {
+                    "vapor_water_mass": 0.078,
+                    "cloud_water_mass": 0.001,
+                    "rain_water_mass": 0.001,
+                    "condensed_water_mass": 0.002,
+                    "total_water_mass": 0.08,
+                },
                 "tracers": {
                     "specific_humidity": {
-                        "total_mass": 0.08,
-                        "min": 0.0095,
-                        "max": 0.0105,
+                        "units": "kg/kg",
+                        "positive": True,
+                        "total_mass": 0.078,
+                        "mixing_ratio": {"min": 0.0095, "max": 0.0105},
+                    },
+                    "cloud_water_mixing_ratio": {
+                        "units": "kg/kg",
+                        "positive": True,
+                        "total_mass": 0.001,
+                        "mixing_ratio": {"min": 0.0, "max": 0.0004},
+                    },
+                    "rain_water_mixing_ratio": {
+                        "units": "kg/kg",
+                        "positive": True,
+                        "total_mass": 0.001,
+                        "mixing_ratio": {"min": 0.0, "max": 0.0003},
                     }
                 },
             },
@@ -287,6 +329,51 @@ def main() -> None:
                     "ny": 2,
                     "storage": "row_major_yx",
                     "values": [293.0, 294.0, 292.5, 293.5],
+                },
+                {
+                    "name": "cloud_water_mixing_ratio",
+                    "units": "kg kg^-1",
+                    "location": "cell_center",
+                    "nx": 2,
+                    "ny": 2,
+                    "storage": "row_major_yx",
+                    "values": [0.0001, 0.0002, 0.0000, 0.0001],
+                },
+                {
+                    "name": "rain_water_mixing_ratio",
+                    "units": "kg kg^-1",
+                    "location": "cell_center",
+                    "nx": 2,
+                    "ny": 2,
+                    "storage": "row_major_yx",
+                    "values": [0.0000, 0.0001, 0.0002, 0.0001],
+                },
+                {
+                    "name": "total_condensate",
+                    "units": "kg kg^-1",
+                    "location": "cell_center",
+                    "nx": 2,
+                    "ny": 2,
+                    "storage": "row_major_yx",
+                    "values": [0.0001, 0.0003, 0.0002, 0.0002],
+                },
+                {
+                    "name": "column_rain_water",
+                    "units": "kg m^-2",
+                    "location": "cell_center",
+                    "nx": 2,
+                    "ny": 2,
+                    "storage": "row_major_yx",
+                    "values": [0.0, 0.2, 0.4, 0.3],
+                },
+                {
+                    "name": "synthetic_reflectivity",
+                    "units": "dBZ",
+                    "location": "cell_center",
+                    "nx": 2,
+                    "ny": 2,
+                    "storage": "row_major_yx",
+                    "values": [-20.0, 12.0, 24.0, 18.0],
                 }
             ],
         }
@@ -309,6 +396,12 @@ def main() -> None:
                     "field": "specific_humidity",
                     "units": "kg kg^-1",
                     "path": str(qv_image_path.resolve()),
+                    "format": "png",
+                },
+                {
+                    "field": "synthetic_reflectivity",
+                    "units": "dBZ",
+                    "path": str(refl_image_path.resolve()),
                     "format": "png",
                 }
             ],

@@ -6,6 +6,7 @@
 #include <string>
 
 #include "gwm/core/cuda_utils.hpp"
+#include "gwm/core/runtime_summary.hpp"
 #include "gwm/dycore/dry_core.hpp"
 #include "gwm/dycore/dry_diagnostics.hpp"
 #include "gwm/dycore/passive_tracer.hpp"
@@ -13,6 +14,7 @@
 #include "gwm/ingest/runtime_case.hpp"
 #include "gwm/ingest/source_catalog.hpp"
 #include "gwm/io/plan_view_output.hpp"
+#include "gwm/physics/warm_rain.hpp"
 #include "gwm/surface/surface_runtime_init.hpp"
 
 namespace {
@@ -119,8 +121,8 @@ std::string prepared_summary_json(
     const gwm::ingest::PreparedRuntimeCase& runtime_case, int steps,
     gwm::real dt, int fast_substeps,
     const gwm::surface::SurfaceRuntimeInitResult& surface_runtime,
-    const gwm::dycore::DryStateSummary& initial,
-    const gwm::dycore::DryStateSummary& final) {
+    const gwm::core::RuntimeStateSummary& initial,
+    const gwm::core::RuntimeStateSummary& final) {
   std::ostringstream oss;
   oss << "{\n";
   oss << "  \"case\": \"prepared_case\",\n";
@@ -146,8 +148,9 @@ std::string prepared_summary_json(
   oss << "    \"nsoil\": " << surface_runtime.state.nsoil() << "\n";
   oss << "  },\n";
   oss << "  \"initial\": "
-      << gwm::dycore::summary_to_json(initial, "    ") << ",\n";
-  oss << "  \"final\": " << gwm::dycore::summary_to_json(final, "    ") << "\n";
+      << gwm::core::runtime_state_summary_to_json(initial, "    ") << ",\n";
+  oss << "  \"final\": "
+      << gwm::core::runtime_state_summary_to_json(final, "    ") << "\n";
   oss << "}";
   return oss.str();
 }
@@ -169,21 +172,23 @@ int main(int argc, char** argv) {
                                                 opts.init_config);
     auto states = gwm::ingest::make_dry_states_from_analysis(
         runtime_case.analysis, layout, "prepared_case");
-    auto tracers = gwm::ingest::make_specific_humidity_tracers_from_analysis(
-        runtime_case.analysis, states, layout, "prepared_case_qv");
+    auto tracers = gwm::ingest::make_warm_rain_tracers_from_analysis(
+        runtime_case.analysis, states, layout, "prepared_case_tracer");
 
     const auto surface_runtime = gwm::surface::make_surface_runtime_from_canonical_fields(
         runtime_case.analysis.surface, runtime_case.analysis.static_surface,
         runtime_case.analysis.grid.nx, runtime_case.analysis.grid.ny);
     (void)surface_runtime.properties;
 
-    const auto initial = gwm::dycore::summarize_dry_states(states);
+    const auto initial = gwm::core::summarize_runtime_state(states, tracers);
 
     gwm::ingest::PreparedCaseBoundaryUpdater boundary_updater(
         runtime_case.analysis, runtime_case.boundary_cache, opts.init_config);
     gwm::ingest::PreparedCaseTracerBoundaryUpdater tracer_boundary_updater(
         runtime_case.analysis, runtime_case.boundary_cache, opts.init_config);
     gwm::dycore::LocalSplitExplicitFastMode fast_modes;
+    gwm::physics::WarmRainConfig warm_rain_config{};
+    warm_rain_config.dt = opts.step_config.dt;
 
     gwm::real sim_time = 0.0f;
     for (int step = 0; step < opts.steps; ++step) {
@@ -195,10 +200,12 @@ int main(int argc, char** argv) {
       gwm::dycore::advance_passive_tracers_ssprk3(
           tracers, states, layout, metrics, opts.step_config,
           tracer_boundary_updater);
+      gwm::physics::apply_warm_rain_microphysics(states, tracers,
+                                                 warm_rain_config);
       sim_time += opts.step_config.dt;
     }
 
-    const auto final = gwm::dycore::summarize_dry_states(states);
+    const auto final = gwm::core::summarize_runtime_state(states, tracers);
     const auto summary_json =
         prepared_summary_json(runtime_case, opts.steps, opts.step_config.dt,
                               opts.step_config.fast_substeps, surface_runtime,

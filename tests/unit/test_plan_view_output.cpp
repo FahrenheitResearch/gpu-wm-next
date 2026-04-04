@@ -9,6 +9,7 @@
 #include "gwm/core/dry_thermo.hpp"
 #include "gwm/dycore/passive_tracer.hpp"
 #include "gwm/io/plan_view_output.hpp"
+#include "gwm/state/tracer_registry.hpp"
 
 #include "test_assert.hpp"
 
@@ -150,6 +151,48 @@ int main() {
     TEST_CHECK(runtime_rh.values.front() > 0.0);
     TEST_CHECK(runtime_rh.values.front() <= 100.0);
     TEST_CHECK(runtime_dewpoint.values.front() < temperature.values.front());
+
+    std::vector<state::TracerState> warm_rain_tracers;
+    warm_rain_tracers.reserve(layout.size());
+    for (const auto& desc : layout) {
+      state::TracerState tracer_state(state::make_warm_rain_registry(),
+                                      desc.nx_local(), desc.ny_local(), desc.nz,
+                                      desc.halo, "warm_rain_runtime");
+      tracer_state.fill_zero();
+      for (int k = 0; k < desc.nz; ++k) {
+        for (int j = 0; j < desc.ny_local(); ++j) {
+          for (int i = 0; i < desc.nx_local(); ++i) {
+            tracer_state.mass(state::kSpecificHumidityTracerName)(i, j, k) =
+                states[static_cast<std::size_t>(desc.rank)].rho_d(i, j, k) * 0.004f;
+            tracer_state.mass(state::kCloudWaterTracerName)(i, j, k) =
+                states[static_cast<std::size_t>(desc.rank)].rho_d(i, j, k) * 0.001f;
+            tracer_state.mass(state::kRainWaterTracerName)(i, j, k) =
+                states[static_cast<std::size_t>(desc.rank)].rho_d(i, j, k) * 0.0005f;
+          }
+        }
+      }
+      warm_rain_tracers.push_back(std::move(tracer_state));
+    }
+
+    const auto warm_rain_bundle = io::extract_runtime_plan_view(
+        states, warm_rain_tracers, layout, metrics, "warm_rain_runtime", 4,
+        2.0f, 1);
+    TEST_CHECK(warm_rain_bundle.fields.size() == 18);
+    TEST_NEAR(require_field(warm_rain_bundle,
+                            gwm::state::kCloudWaterTracerName)
+                  .values.front(),
+              0.001, 1.0e-6);
+    TEST_NEAR(require_field(warm_rain_bundle,
+                            gwm::state::kRainWaterTracerName)
+                  .values.front(),
+              0.0005, 1.0e-6);
+    TEST_NEAR(require_field(warm_rain_bundle, "total_condensate")
+                  .values.front(),
+              0.0015, 1.0e-6);
+    TEST_CHECK(require_field(warm_rain_bundle, "column_rain_water")
+                   .values.front() > 0.0);
+    TEST_CHECK(require_field(warm_rain_bundle, "synthetic_reflectivity")
+                   .values.front() <= 75.0);
 
     auto enriched = bundle;
     const auto temp_dir =

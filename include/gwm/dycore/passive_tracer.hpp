@@ -32,6 +32,15 @@ make_specific_humidity_tracers_from_global_field(
     int global_ny, const std::vector<real>& specific_humidity,
     const std::string& label_prefix = "specific_humidity");
 
+[[nodiscard]] std::vector<state::TracerState>
+make_warm_rain_tracers_from_global_fields(
+    const std::vector<DryState>& dry_states,
+    const std::vector<domain::SubdomainDescriptor>& layout, int global_nx,
+    int global_ny, const std::vector<real>& specific_humidity,
+    const std::vector<real>* cloud_water = nullptr,
+    const std::vector<real>* rain_water = nullptr,
+    const std::string& label_prefix = "warm_rain");
+
 void advance_passive_tracers_ssprk3(
     std::vector<state::TracerState>& tracers,
     const std::vector<DryState>& dry_states,

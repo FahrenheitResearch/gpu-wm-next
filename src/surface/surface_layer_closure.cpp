@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "gwm/core/moist_thermo.hpp"
+
 namespace gwm::surface {
 
 namespace {
@@ -10,7 +12,6 @@ namespace {
 constexpr real kMinRoughness = 1.0e-4f;
 constexpr real kMinPressurePa = 1000.0f;
 constexpr real kVonKarman = 0.4f;
-constexpr real kRvOverRd = 0.622f;
 
 real clamp_height(real z_target, real z0) {
   return std::max(z_target, z0 * 1.01f);
@@ -26,32 +27,19 @@ real interpolation_weight(real z_target, real z_ref, real z0) {
 }  // namespace
 
 real saturation_specific_humidity(real temperature_k, real pressure_pa) {
-  const real temp_c = temperature_k - 273.15f;
-  const real es_hpa =
-      6.112f * std::exp((17.67f * temp_c) / (temp_c + 243.5f));
-  const real es_pa = es_hpa * 100.0f;
-  const real denom = std::max(pressure_pa - es_pa, kMinPressurePa);
-  return std::clamp(kRvOverRd * es_pa / denom, 0.0f, 0.05f);
+  return core::saturation_specific_humidity(temperature_k, pressure_pa);
 }
 
 real relative_humidity_from_specific_humidity(real specific_humidity,
                                               real temperature_k,
                                               real pressure_pa) {
-  const real qsat = saturation_specific_humidity(temperature_k, pressure_pa);
-  return std::clamp(
-      (qsat > 0.0f) ? (100.0f * specific_humidity / qsat) : 0.0f, 0.0f, 100.0f);
+  return core::relative_humidity_from_specific_humidity(
+      specific_humidity, temperature_k, pressure_pa);
 }
 
 real dewpoint_from_specific_humidity(real specific_humidity,
                                      real pressure_pa) {
-  const real q = std::clamp(specific_humidity, 0.0f, 1.0f);
-  const real vapor_pressure_pa =
-      pressure_pa * q / std::max(kRvOverRd + (1.0f - kRvOverRd) * q, 1.0e-6f);
-  const real vapor_pressure_hpa =
-      std::max(vapor_pressure_pa * 0.01f, 1.0e-6f);
-  const real log_term = std::log(vapor_pressure_hpa / 6.112f);
-  const real dewpoint_c = (243.5f * log_term) / (17.67f - log_term);
-  return dewpoint_c + 273.15f;
+  return core::dewpoint_from_specific_humidity(specific_humidity, pressure_pa);
 }
 
 SurfaceLayerDiagnostics evaluate_neutral_surface_layer(

@@ -370,6 +370,73 @@ std::vector<state::TracerState> make_specific_humidity_tracers_from_global_field
   return tracers;
 }
 
+std::vector<state::TracerState> make_warm_rain_tracers_from_global_fields(
+    const std::vector<DryState>& dry_states,
+    const std::vector<domain::SubdomainDescriptor>& layout, int global_nx,
+    int global_ny, const std::vector<real>& specific_humidity,
+    const std::vector<real>* cloud_water, const std::vector<real>* rain_water,
+    const std::string& label_prefix) {
+  gwm::require(dry_states.size() == layout.size(),
+               "Dry-state/layout size mismatch in "
+               "make_warm_rain_tracers_from_global_fields");
+  gwm::require(!layout.empty(),
+               "Layout must not be empty in "
+               "make_warm_rain_tracers_from_global_fields");
+  const auto global_nz = layout.front().nz;
+  const auto expected_size = static_cast<std::size_t>(global_nx) *
+                             static_cast<std::size_t>(global_ny) *
+                             static_cast<std::size_t>(global_nz);
+  gwm::require(specific_humidity.size() == expected_size,
+               "Specific-humidity field size mismatch");
+  if (cloud_water != nullptr) {
+    gwm::require(cloud_water->size() == expected_size,
+                 "Cloud-water field size mismatch");
+  }
+  if (rain_water != nullptr) {
+    gwm::require(rain_water->size() == expected_size,
+                 "Rain-water field size mismatch");
+  }
+
+  std::vector<state::TracerState> tracers;
+  tracers.reserve(layout.size());
+  for (const auto& desc : layout) {
+    state::TracerState tracer_state(state::make_warm_rain_registry(),
+                                    desc.nx_local(), desc.ny_local(), desc.nz,
+                                    desc.halo,
+                                    label_prefix + "_rank_" +
+                                        std::to_string(desc.rank));
+    tracer_state.fill_zero();
+    auto& rho_qv = tracer_state.mass(state::kSpecificHumidityTracerName);
+    auto& rho_qc = tracer_state.mass(state::kCloudWaterTracerName);
+    auto& rho_qr = tracer_state.mass(state::kRainWaterTracerName);
+    const auto& rho_d =
+        dry_states[static_cast<std::size_t>(desc.rank)].rho_d;
+    for (int j = 0; j < desc.ny_local(); ++j) {
+      const int j_global = desc.j_begin + j;
+      for (int i = 0; i < desc.nx_local(); ++i) {
+        const int i_global = desc.i_begin + i;
+        for (int k = 0; k < desc.nz; ++k) {
+          const auto global_index =
+              linear_index_3d(i_global, j_global, k, global_nx, global_ny);
+          const real rho = rho_d(i, j, k);
+          rho_qv(i, j, k) =
+              rho * std::max<real>(0.0f, specific_humidity[global_index]);
+          rho_qc(i, j, k) =
+              rho * std::max<real>(0.0f, cloud_water == nullptr
+                                              ? 0.0f
+                                              : (*cloud_water)[global_index]);
+          rho_qr(i, j, k) =
+              rho * std::max<real>(0.0f, rain_water == nullptr
+                                              ? 0.0f
+                                              : (*rain_water)[global_index]);
+        }
+      }
+    }
+    tracers.push_back(std::move(tracer_state));
+  }
+  return tracers;
+}
+
 void advance_passive_tracers_ssprk3(
     std::vector<state::TracerState>& tracers,
     const std::vector<DryState>& dry_states,

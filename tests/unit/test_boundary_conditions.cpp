@@ -21,19 +21,25 @@ int main() {
 
   std::vector<state::TracerState> tracer_states;
   std::vector<state::TracerState> tracer_boundary_states;
-  tracer_states.emplace_back(state::make_specific_humidity_registry(),
+  tracer_states.emplace_back(state::make_warm_rain_registry(),
                              layout.front().nx_local(),
                              layout.front().ny_local(), layout.front().nz,
                              layout.front().halo, "tracer_state");
-  tracer_boundary_states.emplace_back(state::make_specific_humidity_registry(),
+  tracer_boundary_states.emplace_back(state::make_warm_rain_registry(),
                                       layout.front().nx_local(),
                                       layout.front().ny_local(),
                                       layout.front().nz, layout.front().halo,
                                       "tracer_boundary");
   tracer_states.front().mass(gwm::state::kSpecificHumidityTracerName).fill(
       0.01f);
+  tracer_states.front().mass(gwm::state::kCloudWaterTracerName).fill(0.0f);
+  tracer_states.front().mass(gwm::state::kRainWaterTracerName).fill(0.0f);
   tracer_boundary_states.front().mass(gwm::state::kSpecificHumidityTracerName)
       .fill(0.015f);
+  tracer_boundary_states.front().mass(gwm::state::kCloudWaterTracerName)
+      .fill(0.001f);
+  tracer_boundary_states.front().mass(gwm::state::kRainWaterTracerName)
+      .fill(0.002f);
 
   dycore::apply_reference_boundaries(states, boundary_states, layout);
   dycore::apply_reference_boundaries(tracer_states, tracer_boundary_states,
@@ -69,5 +75,9 @@ int main() {
       tracer_state.mass(gwm::state::kSpecificHumidityTracerName)(2, 2, 1),
       0.01f,
       1.0e-6f);
+  TEST_NEAR(tracer_state.mass(gwm::state::kCloudWaterTracerName)(0, 0, 0),
+            0.001f, 1.0e-6f);
+  TEST_NEAR(tracer_state.mass(gwm::state::kRainWaterTracerName)(0, 0, 0),
+            0.002f, 1.0e-6f);
   return 0;
 }

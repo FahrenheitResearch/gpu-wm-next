@@ -104,8 +104,13 @@ Current checkpoint:
   - shared near-surface humidity diagnostics that stay bounded through the
     neutral surface-layer / screen-obsops path
   - tracer/product docs and sidecar tests for the passive first cut
-- Runtime tracer transport, latent-heating coupling, and microphysics are still
-  separate follow-on work.
+- The current warm-rain runtime lane now adds:
+  - registry-managed `cloud_water_mixing_ratio` and `rain_water_mixing_ratio`
+    tracers
+  - local warm-rain microphysics with optional latent-heating coupling
+  - prepared-case `summary.json` tracer totals/ranges plus
+    vapor/cloud/rain/condensed/total water sidecars
+  - runtime-summary and warm-rain summary-closure tests
 
 Source-driven smoke example:
 

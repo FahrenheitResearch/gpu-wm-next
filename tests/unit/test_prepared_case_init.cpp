@@ -130,6 +130,20 @@ int main() {
       tracers[0].mass(gwm::state::kSpecificHumidityTracerName)(1, 1, 1),
       expected_rho * 0.005f, 1.0e-5f);
 
+  auto warm_rain_tracers = make_warm_rain_tracers_from_analysis(
+      analysis, states, layout, "prepared_case_warm_rain");
+  TEST_CHECK(warm_rain_tracers.size() == 1);
+  TEST_CHECK(warm_rain_tracers[0].size() == 3);
+  TEST_NEAR(
+      warm_rain_tracers[0].mass(gwm::state::kSpecificHumidityTracerName)(0, 0, 0),
+      expected_rho * 0.005f, 1.0e-5f);
+  TEST_NEAR(
+      warm_rain_tracers[0].mass(gwm::state::kCloudWaterTracerName)(0, 0, 0),
+      0.0f, 1.0e-6f);
+  TEST_NEAR(
+      warm_rain_tracers[0].mass(gwm::state::kRainWaterTracerName)(0, 0, 0),
+      0.0f, 1.0e-6f);
+
   states[0].fill_constant(0.5f, 290.0f, 0.0f, 0.0f, 0.0f);
   PreparedCaseBoundaryUpdater boundary_updater(make_analysis(),
                                                make_boundary_cache(), config);

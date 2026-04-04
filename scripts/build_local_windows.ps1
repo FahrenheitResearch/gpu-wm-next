@@ -1,7 +1,8 @@
 param(
     [string]$BuildDir = "build-ninja",
     [string]$Generator = "Ninja",
-    [string]$Configuration = "Release"
+    [string]$Configuration = "Release",
+    [string]$TestRegex = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,7 +26,7 @@ cmake -S "$repoRoot" -B "$repoRoot\$BuildDir" -G "$Generator" -DCMAKE_BUILD_TYPE
 if errorlevel 1 exit /b 1
 cmake --build "$repoRoot\$BuildDir" --parallel
 if errorlevel 1 exit /b 1
-ctest --test-dir "$repoRoot\$BuildDir" --output-on-failure -C $Configuration
+ctest --test-dir "$repoRoot\$BuildDir" --output-on-failure -C $Configuration $(if ($TestRegex) { "-R `"$TestRegex`"" })
 if errorlevel 1 exit /b 1
 "@
 
@@ -33,6 +34,9 @@ $tempCmd = Join-Path $env:TEMP "gpu_wm_next_build_local.cmd"
 Set-Content -LiteralPath $tempCmd -Value $configure -Encoding ASCII
 try {
     cmd /c $tempCmd
+    if ($LASTEXITCODE -ne 0) {
+        throw "Local Windows build/test failed with exit code $LASTEXITCODE."
+    }
 } finally {
     Remove-Item -LiteralPath $tempCmd -ErrorAction SilentlyContinue
 }

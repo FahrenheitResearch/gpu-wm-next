@@ -113,11 +113,20 @@ def choose_field_style(field: dict[str, Any], rows: list[list[float]]) -> dict[s
     if name in {"terrain_height", "z_center", "geopotential_height"}:
         style.update({"cmap": "terrain"})
         return style
+    if "reflectivity" in name:
+        style.update({"cmap": "turbo", "vmin": -10.0, "vmax": 75.0})
+        return style
+    if "column_rain_water" in name:
+        style.update({"cmap": "viridis", "vmin": 0.0, "vmax": percentile(values, 0.98)})
+        return style
     if "relative_humidity" in name:
         style.update({"cmap": "Blues", "vmin": 0.0, "vmax": max(vmax, 100.0)})
         return style
     if "specific_humidity" in name:
         style.update({"cmap": "YlGnBu", "vmin": max(0.0, vmin)})
+        return style
+    if "cloud_water" in name or "rain_water" in name or "condensate" in name:
+        style.update({"cmap": "PuBuGn", "vmin": 0.0, "vmax": percentile(values, 0.99)})
         return style
     if "dewpoint" in name or "temperature" in name or "theta" in name:
         style.update({"cmap": "coolwarm"})

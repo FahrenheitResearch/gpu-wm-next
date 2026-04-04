@@ -17,11 +17,13 @@ The bridge is:
 3. The runtime driver consumes `analysis_state.json` and
    `boundary_cache.json`.
 4. The runtime emits summary, plan-view, and map-manifest JSON artifacts.
-5. When a populated companion `analysis_state.json` is present, the current
+5. The prepared-case summary sidecar now reports dry totals together with
+   warm-rain tracer totals and moisture-budget sidecars.
+6. When a populated companion `analysis_state.json` is present, the current
    plan-view writer may enrich the source-driven bundle with moisture
    diagnostics such as `specific_humidity`, `relative_humidity`, and
    `dewpoint`.
-6. `tools/verify/` validates the bundle.
+7. `tools/verify/` validates the bundle.
 
 ## Bundle Contents
 
@@ -57,6 +59,8 @@ making the handoff concrete enough to test.
 - verification is JSON-first and does not decode GRIB itself
 - the source-run path should keep the dry-core map bridge available even before
   full moist physics lands
+- the warm-rain milestone keeps summary-sidecar verification ahead of any claim
+  of full precip realism
 
 ## Test Mapping
 
@@ -64,3 +68,4 @@ making the handoff concrete enough to test.
 - `tools/verify/run_verification.py`
 - `tools/verify/render_plan_view_maps.py`
 - `docs/math/prepared_case_runtime.md`
+- `docs/math/warm_rain_milestone.md`

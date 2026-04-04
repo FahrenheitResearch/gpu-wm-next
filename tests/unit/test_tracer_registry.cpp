@@ -49,6 +49,15 @@ int main() {
     auto cloned = tracer_state.clone_empty_like("_clone");
     cloned.copy_all_from(tracer_state);
     TEST_NEAR(cloned.mass(0)(1, 1, 1), 0.25f, 1.0e-6f);
+
+    auto warm_rain_registry = gwm::state::make_warm_rain_registry();
+    TEST_CHECK(warm_rain_registry.size() == 3);
+    TEST_CHECK(warm_rain_registry.find(gwm::state::kSpecificHumidityTracerName)
+                   .value() == 0);
+    TEST_CHECK(warm_rain_registry.find(gwm::state::kCloudWaterTracerName)
+                   .value() == 1);
+    TEST_CHECK(warm_rain_registry.find(gwm::state::kRainWaterTracerName)
+                   .value() == 2);
     return 0;
   } catch (const std::exception& ex) {
     test_fail(std::string("exception: ") + ex.what());

@@ -63,16 +63,14 @@
 - first bounded moisture/tracer milestone:
   - canonical `specific_humidity` as the first registry-managed tracer name
   - `water_vapor_mixing_ratio` remains an ingest/source alias only
-  - current source-driven product path can already enrich plan-view bundles
-    with:
+  - tracer transport is now threaded through the timestepper
+  - source-driven plan-view bundles now support:
     - `specific_humidity`
     - `relative_humidity`
     - `dewpoint`
-  - tracer transport through the timestepper is still follow-on work
-  - keep this cut passive first:
-    - no latent heating
-    - no condensation source terms
-    - no microphysics in the same patch
+  - prepared-case runtime summaries now report:
+    - tracer totals/ranges
+    - vapor/cloud/rain/condensed/total water masses
 - minimal surface runtime spine:
   - `SurfaceState`
   - `SurfaceStaticProperties`
@@ -81,6 +79,7 @@
 - Monin-Obukhov surface layer
 - TKE PBL
 - warm-rain microphysics
+- warm-rain closed-box and runtime-summary closure tests
 - minimal radiation
 
 ## stage3_practical
