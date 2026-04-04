@@ -191,6 +191,10 @@ def make_tool_records(tool_manifest: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def product_plan_stub(domain_name: str, source: SourceContract) -> dict[str, Any]:
+    aloft_products = canonical_names(source.atmosphere)
+    for derived_name in ("relative_humidity", "dewpoint", "wind_speed"):
+        if derived_name not in aloft_products:
+            aloft_products.append(derived_name)
     return {
         "schema_version": "gwm-next-product-plan/v1",
         "domain_name": domain_name,
@@ -202,8 +206,12 @@ def product_plan_stub(domain_name: str, source: SourceContract) -> dict[str, Any
                 "note": "Cold-start contract and boundary-cache planning",
             },
             {
-                "kind": "idealized_summary_json",
-                "note": "Current dry-core summary/product bridge from gwm_idealized_driver",
+                "kind": "source_run_bundle_directory",
+                "note": "Prepared-case source-run bundle with summary, plan-view, and rendered maps",
+            },
+            {
+                "kind": "plan_view_bundle_json",
+                "note": "Runtime-emitted plan-view bundle, dry today and moisture-capable next",
             },
         ],
         "planned_products": {
@@ -212,13 +220,17 @@ def product_plan_stub(domain_name: str, source: SourceContract) -> dict[str, Any
                 "skin_temperature",
                 "air_temperature_2m",
                 "specific_humidity_2m",
+                "relative_humidity_2m",
+                "dewpoint_2m",
                 "u_wind_10m",
                 "v_wind_10m",
             ],
-            "aloft": canonical_names(source.atmosphere),
+            "aloft": aloft_products,
             "products": [
                 "verification_report_json",
+                "plan_view_bundle_json",
                 "plot_manifest_json",
+                "moist_plan_view_pngs",
             ],
         },
     }

@@ -95,6 +95,17 @@ Current checkpoint:
 - The repo now has two working map paths:
   - idealized dry cases through `gwm_idealized_driver`
   - populated prepared/source-driven runs through `gwm_prepared_case_driver`
+- The active moisture/tracer product lane now has contract-side support for:
+  - canonical `specific_humidity` across the prepared-case/runtime bridge
+  - source-driven plan-view enrichment with:
+    - `specific_humidity`
+    - `relative_humidity`
+    - `dewpoint`
+  - shared near-surface humidity diagnostics that stay bounded through the
+    neutral surface-layer / screen-obsops path
+  - tracer/product docs and sidecar tests for the passive first cut
+- Runtime tracer transport, latent-heating coupling, and microphysics are still
+  separate follow-on work.
 
 Source-driven smoke example:
 

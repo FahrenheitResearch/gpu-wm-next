@@ -8,6 +8,7 @@
 #include "gwm/core/cuda_utils.hpp"
 #include "gwm/dycore/dry_core.hpp"
 #include "gwm/dycore/dry_diagnostics.hpp"
+#include "gwm/dycore/passive_tracer.hpp"
 #include "gwm/ingest/prepared_case_init.hpp"
 #include "gwm/ingest/runtime_case.hpp"
 #include "gwm/ingest/source_catalog.hpp"
@@ -168,6 +169,8 @@ int main(int argc, char** argv) {
                                                 opts.init_config);
     auto states = gwm::ingest::make_dry_states_from_analysis(
         runtime_case.analysis, layout, "prepared_case");
+    auto tracers = gwm::ingest::make_specific_humidity_tracers_from_analysis(
+        runtime_case.analysis, states, layout, "prepared_case_qv");
 
     const auto surface_runtime = gwm::surface::make_surface_runtime_from_canonical_fields(
         runtime_case.analysis.surface, runtime_case.analysis.static_surface,
@@ -178,14 +181,20 @@ int main(int argc, char** argv) {
 
     gwm::ingest::PreparedCaseBoundaryUpdater boundary_updater(
         runtime_case.analysis, runtime_case.boundary_cache, opts.init_config);
+    gwm::ingest::PreparedCaseTracerBoundaryUpdater tracer_boundary_updater(
+        runtime_case.analysis, runtime_case.boundary_cache, opts.init_config);
     gwm::dycore::LocalSplitExplicitFastMode fast_modes;
 
     gwm::real sim_time = 0.0f;
     for (int step = 0; step < opts.steps; ++step) {
       boundary_updater.set_step_start_time(sim_time);
+      tracer_boundary_updater.set_step_start_time(sim_time);
       gwm::dycore::advance_dry_state_ssprk3(states, layout, metrics,
                                             opts.step_config, boundary_updater,
                                             fast_modes);
+      gwm::dycore::advance_passive_tracers_ssprk3(
+          tracers, states, layout, metrics, opts.step_config,
+          tracer_boundary_updater);
       sim_time += opts.step_config.dt;
     }
 
@@ -207,8 +216,8 @@ int main(int argc, char** argv) {
     }
 
     if (!opts.plan_view_json_path.empty()) {
-      const auto plan_view = gwm::io::extract_dry_plan_view(
-          states, layout, metrics, "prepared_case", opts.steps,
+      const auto plan_view = gwm::io::extract_runtime_plan_view(
+          states, tracers, layout, metrics, "prepared_case", opts.steps,
           opts.step_config.dt, opts.plan_view_level);
       gwm::io::write_plan_view_bundle_json(plan_view, opts.plan_view_json_path);
     }

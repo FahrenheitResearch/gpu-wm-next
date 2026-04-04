@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -9,13 +10,19 @@
 #include <string>
 
 #include "gwm/comm/virtual_rank_layout.hpp"
+#include "gwm/core/dry_thermo.hpp"
 #include "gwm/core/cuda_utils.hpp"
+#include "gwm/ingest/runtime_case.hpp"
+#include "gwm/surface/surface_layer_closure.hpp"
 
 namespace gwm::io {
 
 namespace {
 
 using gwm::state::FaceOrientation;
+
+constexpr real kMinRho = 1.0e-6f;
+constexpr real kMinPressurePa = 1.0f;
 
 std::vector<state::Field3D<real>> derive_theta_fields(
     const std::vector<dycore::DryState>& states) {
@@ -27,7 +34,7 @@ std::vector<state::Field3D<real>> derive_theta_fields(
       for (int j = 0; j < state.rho_d.ny(); ++j) {
         for (int i = 0; i < state.rho_d.nx(); ++i) {
           const real rho = state.rho_d(i, j, k);
-          field(i, j, k) = state.rho_theta_m(i, j, k) / std::max(rho, 1.0e-6f);
+          field(i, j, k) = state.rho_theta_m(i, j, k) / std::max(rho, kMinRho);
         }
       }
     }
@@ -48,7 +55,7 @@ std::vector<state::Field3D<real>> derive_u_velocity_fields(
         for (int i = 0; i < state.rho_d.nx(); ++i) {
           const real rho = state.rho_d(i, j, k);
           const real u_center = 0.5f * (u(i, j, k) + u(i + 1, j, k));
-          field(i, j, k) = u_center / std::max(rho, 1.0e-6f);
+          field(i, j, k) = u_center / std::max(rho, kMinRho);
         }
       }
     }
@@ -69,7 +76,7 @@ std::vector<state::Field3D<real>> derive_v_velocity_fields(
         for (int i = 0; i < state.rho_d.nx(); ++i) {
           const real rho = state.rho_d(i, j, k);
           const real v_center = 0.5f * (v(i, j, k) + v(i, j + 1, k));
-          field(i, j, k) = v_center / std::max(rho, 1.0e-6f);
+          field(i, j, k) = v_center / std::max(rho, kMinRho);
         }
       }
     }
@@ -90,7 +97,7 @@ std::vector<state::Field3D<real>> derive_w_velocity_fields(
         for (int i = 0; i < state.rho_d.nx(); ++i) {
           const real rho = state.rho_d(i, j, k);
           const real w_center = 0.5f * (w(i, j, k) + w(i, j, k + 1));
-          field(i, j, k) = w_center / std::max(rho, 1.0e-6f);
+          field(i, j, k) = w_center / std::max(rho, kMinRho);
         }
       }
     }
@@ -123,6 +130,126 @@ std::vector<state::Field3D<real>> derive_wind_speed_fields(
   return fields;
 }
 
+std::vector<state::Field3D<real>> derive_pressure_fields(
+    const std::vector<dycore::DryState>& states) {
+  std::vector<state::Field3D<real>> fields;
+  fields.reserve(states.size());
+  for (const auto& state : states) {
+    auto field = state.rho_d.clone_empty_like("_pressure_output");
+    for (int k = 0; k < state.rho_d.nz(); ++k) {
+      for (int j = 0; j < state.rho_d.ny(); ++j) {
+        for (int i = 0; i < state.rho_d.nx(); ++i) {
+          field(i, j, k) = gwm::core::dry_pressure_from_rho_theta_m(
+              state.rho_d(i, j, k), state.rho_theta_m(i, j, k));
+        }
+      }
+    }
+    fields.push_back(std::move(field));
+  }
+  return fields;
+}
+
+std::vector<state::Field3D<real>> derive_temperature_fields(
+    const std::vector<state::Field3D<real>>& theta_fields,
+    const std::vector<state::Field3D<real>>& pressure_fields) {
+  gwm::require(theta_fields.size() == pressure_fields.size(),
+               "theta/pressure field count mismatch in temperature derivation");
+
+  std::vector<state::Field3D<real>> fields;
+  fields.reserve(theta_fields.size());
+  for (std::size_t n = 0; n < theta_fields.size(); ++n) {
+    auto field = theta_fields[n].clone_empty_like("_temperature_output");
+    for (int k = 0; k < field.nz(); ++k) {
+      for (int j = 0; j < field.ny(); ++j) {
+        for (int i = 0; i < field.nx(); ++i) {
+          const real theta = theta_fields[n](i, j, k);
+          const real pressure = std::max(pressure_fields[n](i, j, k), kMinPressurePa);
+          const real exner = std::pow(
+              pressure / gwm::core::kReferencePressure, gwm::core::kKappa);
+          field(i, j, k) = theta * exner;
+        }
+      }
+    }
+    fields.push_back(std::move(field));
+  }
+  return fields;
+}
+
+std::vector<state::Field3D<real>> derive_specific_humidity_fields(
+    const std::vector<dycore::DryState>& states,
+    const std::vector<state::TracerState>& tracers) {
+  gwm::require(states.size() == tracers.size(),
+               "Dry-state/tracer count mismatch in qv derivation");
+  std::vector<state::Field3D<real>> fields;
+  fields.reserve(states.size());
+  for (std::size_t n = 0; n < states.size(); ++n) {
+    const auto qv_index =
+        tracers[n].find(gwm::state::kSpecificHumidityTracerName);
+    gwm::require(qv_index.has_value(),
+                 "specific_humidity tracer missing from runtime tracer state");
+    auto field = states[n].rho_d.clone_empty_like("_specific_humidity_output");
+    const auto& rho_q = tracers[n].mass(*qv_index);
+    for (int k = 0; k < field.nz(); ++k) {
+      for (int j = 0; j < field.ny(); ++j) {
+        for (int i = 0; i < field.nx(); ++i) {
+          field(i, j, k) = rho_q(i, j, k) /
+                           std::max(states[n].rho_d(i, j, k), kMinRho);
+        }
+      }
+    }
+    fields.push_back(std::move(field));
+  }
+  return fields;
+}
+
+std::vector<state::Field3D<real>> derive_relative_humidity_fields(
+    const std::vector<state::Field3D<real>>& q_fields,
+    const std::vector<state::Field3D<real>>& pressure_fields,
+    const std::vector<state::Field3D<real>>& temperature_fields) {
+  gwm::require(q_fields.size() == pressure_fields.size() &&
+                   q_fields.size() == temperature_fields.size(),
+               "q/pressure/temperature field count mismatch in RH derivation");
+  std::vector<state::Field3D<real>> fields;
+  fields.reserve(q_fields.size());
+  for (std::size_t n = 0; n < q_fields.size(); ++n) {
+    auto field = q_fields[n].clone_empty_like("_relative_humidity_output");
+    for (int k = 0; k < field.nz(); ++k) {
+      for (int j = 0; j < field.ny(); ++j) {
+        for (int i = 0; i < field.nx(); ++i) {
+          field(i, j, k) =
+              surface::relative_humidity_from_specific_humidity(
+                  q_fields[n](i, j, k), temperature_fields[n](i, j, k),
+                  pressure_fields[n](i, j, k));
+        }
+      }
+    }
+    fields.push_back(std::move(field));
+  }
+  return fields;
+}
+
+std::vector<state::Field3D<real>> derive_dewpoint_fields(
+    const std::vector<state::Field3D<real>>& q_fields,
+    const std::vector<state::Field3D<real>>& pressure_fields) {
+  gwm::require(q_fields.size() == pressure_fields.size(),
+               "q/pressure field count mismatch in dewpoint derivation");
+  std::vector<state::Field3D<real>> fields;
+  fields.reserve(q_fields.size());
+  for (std::size_t n = 0; n < q_fields.size(); ++n) {
+    auto field = q_fields[n].clone_empty_like("_dewpoint_output");
+    for (int k = 0; k < field.nz(); ++k) {
+      for (int j = 0; j < field.ny(); ++j) {
+        for (int i = 0; i < field.nx(); ++i) {
+          field(i, j, k) = surface::dewpoint_from_specific_humidity(
+              q_fields[n](i, j, k), pressure_fields[n](i, j, k));
+        }
+      }
+    }
+    fields.push_back(std::move(field));
+  }
+  return fields;
+}
+
 PlanViewField make_slice_field(const std::string& name, const std::string& units,
                                const state::Field3D<real>& global_field,
                                int slice_k) {
@@ -139,6 +266,21 @@ PlanViewField make_slice_field(const std::string& name, const std::string& units
       out.values.push_back(static_cast<double>(global_field(i, j, slice_k)));
     }
   }
+  return out;
+}
+
+PlanViewField make_flat_slice_field(const std::string& name,
+                                    const std::string& units, int nx, int ny,
+                                    std::vector<double> values) {
+  gwm::require(static_cast<int>(values.size()) == nx * ny,
+               "Plan-view slice field size mismatch for " + name);
+  PlanViewField out{};
+  out.name = name;
+  out.units = units;
+  out.location = "cell_center";
+  out.nx = nx;
+  out.ny = ny;
+  out.values = std::move(values);
   return out;
 }
 
@@ -179,6 +321,47 @@ PlanViewField make_terrain_field(const domain::GridMetrics& metrics) {
   return out;
 }
 
+const PlanViewField* find_field(const PlanViewBundle& bundle,
+                                const std::string& name) {
+  const auto it = std::find_if(bundle.fields.begin(), bundle.fields.end(),
+                               [&](const auto& field) {
+                                 return field.name == name;
+                               });
+  return it == bundle.fields.end() ? nullptr : &(*it);
+}
+
+void set_or_append_field(PlanViewBundle& bundle, PlanViewField field) {
+  const auto it = std::find_if(bundle.fields.begin(), bundle.fields.end(),
+                               [&](const auto& existing) {
+                                 return existing.name == field.name;
+                               });
+  if (it != bundle.fields.end()) {
+    *it = std::move(field);
+  } else {
+    bundle.fields.push_back(std::move(field));
+  }
+}
+
+std::size_t linear_index_3d(int i, int j, int k, int nx, int ny) {
+  return (static_cast<std::size_t>(k) * static_cast<std::size_t>(ny) +
+          static_cast<std::size_t>(j)) *
+             static_cast<std::size_t>(nx) +
+         static_cast<std::size_t>(i);
+}
+
+void maybe_enrich_bundle_from_companion_analysis(PlanViewBundle& bundle,
+                                                 const std::string& output_path) {
+  const auto parent = std::filesystem::path(output_path).parent_path();
+  if (parent.empty()) {
+    return;
+  }
+  const auto analysis_path = parent / "analysis_state.json";
+  if (!std::filesystem::exists(analysis_path)) {
+    return;
+  }
+  enrich_plan_view_bundle_from_prepared_case(bundle, analysis_path.string());
+}
+
 void append_json_string(std::ostringstream& oss, const std::string& value) {
   oss << "\"";
   for (const char ch : value) {
@@ -206,6 +389,9 @@ PlanViewBundle extract_dry_plan_view(
   const int clamped_k = std::clamp(slice_k, 0, metrics.nz - 1);
 
   const auto theta_fields = derive_theta_fields(states);
+  const auto pressure_fields = derive_pressure_fields(states);
+  const auto temperature_fields =
+      derive_temperature_fields(theta_fields, pressure_fields);
   const auto u_fields = derive_u_velocity_fields(states);
   const auto v_fields = derive_v_velocity_fields(states);
   const auto w_fields = derive_w_velocity_fields(states);
@@ -225,6 +411,10 @@ PlanViewBundle extract_dry_plan_view(
       layout, "rho_plan_view");
   const auto theta_global =
       comm::VirtualRankLayout::gather_scalar(theta_fields, layout, "theta_plan_view");
+  const auto pressure_global = comm::VirtualRankLayout::gather_scalar(
+      pressure_fields, layout, "pressure_plan_view");
+  const auto temperature_global = comm::VirtualRankLayout::gather_scalar(
+      temperature_fields, layout, "temperature_plan_view");
   const auto u_global =
       comm::VirtualRankLayout::gather_scalar(u_fields, layout, "u_plan_view");
   const auto v_global =
@@ -257,6 +447,10 @@ PlanViewBundle extract_dry_plan_view(
   bundle.fields.push_back(make_metric_slice_field("z_center", "m", metrics, clamped_k));
   bundle.fields.push_back(make_slice_field("rho_d", "kg m^-3", rho_global, clamped_k));
   bundle.fields.push_back(make_slice_field("theta_m", "K", theta_global, clamped_k));
+  bundle.fields.push_back(
+      make_slice_field("air_pressure", "Pa", pressure_global, clamped_k));
+  bundle.fields.push_back(
+      make_slice_field("air_temperature", "K", temperature_global, clamped_k));
   bundle.fields.push_back(make_slice_field("u_velocity", "m s^-1", u_global, clamped_k));
   bundle.fields.push_back(make_slice_field("v_velocity", "m s^-1", v_global, clamped_k));
   bundle.fields.push_back(
@@ -264,6 +458,159 @@ PlanViewBundle extract_dry_plan_view(
   bundle.fields.push_back(make_slice_field("w_velocity", "m s^-1", w_global, clamped_k));
 
   return bundle;
+}
+
+PlanViewBundle extract_runtime_plan_view(
+    const std::vector<dycore::DryState>& states,
+    const std::vector<state::TracerState>& tracers,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics, const std::string& case_kind, int steps,
+    real dt, int slice_k) {
+  auto bundle =
+      extract_dry_plan_view(states, layout, metrics, case_kind, steps, dt, slice_k);
+  if (tracers.empty()) {
+    return bundle;
+  }
+
+  const int clamped_k = std::clamp(slice_k, 0, metrics.nz - 1);
+  const auto pressure_fields = derive_pressure_fields(states);
+  const auto temperature_fields =
+      derive_temperature_fields(derive_theta_fields(states), pressure_fields);
+  const auto q_fields = derive_specific_humidity_fields(states, tracers);
+  const auto rh_fields =
+      derive_relative_humidity_fields(q_fields, pressure_fields, temperature_fields);
+  const auto dewpoint_fields = derive_dewpoint_fields(q_fields, pressure_fields);
+
+  const auto q_global =
+      comm::VirtualRankLayout::gather_scalar(q_fields, layout, "specific_humidity_plan_view");
+  const auto rh_global = comm::VirtualRankLayout::gather_scalar(
+      rh_fields, layout, "relative_humidity_plan_view");
+  const auto dewpoint_global = comm::VirtualRankLayout::gather_scalar(
+      dewpoint_fields, layout, "dewpoint_plan_view");
+
+  set_or_append_field(bundle, make_slice_field("specific_humidity", "kg kg^-1",
+                                               q_global, clamped_k));
+  set_or_append_field(bundle,
+                      make_slice_field("relative_humidity", "%", rh_global,
+                                       clamped_k));
+  set_or_append_field(bundle,
+                      make_slice_field("dewpoint", "K", dewpoint_global,
+                                       clamped_k));
+  return bundle;
+}
+
+void enrich_plan_view_bundle_from_prepared_case(
+    PlanViewBundle& bundle, const std::string& analysis_state_path) {
+  const auto analysis = ingest::load_analysis_state_json(analysis_state_path);
+  gwm::require(analysis.grid.nx == bundle.nx && analysis.grid.ny == bundle.ny,
+               "Analysis grid mismatch in plan-view enrichment");
+  gwm::require(bundle.slice_k >= 0 && bundle.slice_k < analysis.grid.nz,
+               "Plan-view slice_k is outside analysis grid for enrichment");
+
+  const auto* pressure_field = find_field(bundle, "air_pressure");
+  const auto* temperature_field = find_field(bundle, "air_temperature");
+  gwm::require(pressure_field != nullptr && temperature_field != nullptr,
+               "Plan-view enrichment requires air_pressure and air_temperature");
+
+  if (find_field(bundle, "specific_humidity") == nullptr) {
+    const auto q_it = analysis.atmosphere.values.find("specific_humidity");
+    gwm::require(q_it != analysis.atmosphere.values.end(),
+                 "Prepared-case analysis is missing specific_humidity");
+
+    std::vector<double> q_values;
+    std::vector<double> rh_values;
+    std::vector<double> dewpoint_values;
+    const auto cell_count = static_cast<std::size_t>(analysis.grid.nx) *
+                            static_cast<std::size_t>(analysis.grid.ny);
+    q_values.reserve(cell_count);
+    rh_values.reserve(cell_count);
+    dewpoint_values.reserve(cell_count);
+
+    for (int j = 0; j < analysis.grid.ny; ++j) {
+      for (int i = 0; i < analysis.grid.nx; ++i) {
+        const auto idx = linear_index_3d(i, j, bundle.slice_k, analysis.grid.nx,
+                                         analysis.grid.ny);
+        const real q = std::max(q_it->second[idx], 0.0f);
+        const auto flat_idx =
+            static_cast<std::size_t>(j) * static_cast<std::size_t>(analysis.grid.nx) +
+            static_cast<std::size_t>(i);
+        const real pressure = static_cast<real>(pressure_field->values.at(flat_idx));
+        const real temperature =
+            static_cast<real>(temperature_field->values.at(flat_idx));
+        q_values.push_back(static_cast<double>(q));
+        rh_values.push_back(static_cast<double>(
+            surface::relative_humidity_from_specific_humidity(
+                q, temperature, std::max(pressure, kMinPressurePa))));
+        dewpoint_values.push_back(static_cast<double>(
+            surface::dewpoint_from_specific_humidity(
+                q, std::max(pressure, kMinPressurePa))));
+      }
+    }
+
+    set_or_append_field(bundle,
+                        make_flat_slice_field("specific_humidity", "kg kg^-1",
+                                              bundle.nx, bundle.ny,
+                                              std::move(q_values)));
+    set_or_append_field(bundle,
+                        make_flat_slice_field("relative_humidity", "%",
+                                              bundle.nx, bundle.ny,
+                                              std::move(rh_values)));
+    set_or_append_field(bundle,
+                        make_flat_slice_field("dewpoint", "K", bundle.nx,
+                                              bundle.ny,
+                                              std::move(dewpoint_values)));
+  }
+
+  const auto& surface_fields = analysis.surface.values;
+  if (const auto it = surface_fields.find("surface_pressure");
+      it != surface_fields.end()) {
+    set_or_append_field(bundle,
+                        make_flat_slice_field("surface_pressure", "Pa",
+                                              bundle.nx, bundle.ny,
+                                              std::vector<double>(it->second.begin(),
+                                                                  it->second.end())));
+  }
+  if (const auto it = surface_fields.find("air_temperature_2m");
+      it != surface_fields.end()) {
+    set_or_append_field(bundle,
+                        make_flat_slice_field("air_temperature_2m", "K",
+                                              bundle.nx, bundle.ny,
+                                              std::vector<double>(it->second.begin(),
+                                                                  it->second.end())));
+  }
+  if (const auto q2_it = surface_fields.find("specific_humidity_2m");
+      q2_it != surface_fields.end()) {
+    set_or_append_field(bundle,
+                        make_flat_slice_field("specific_humidity_2m",
+                                              "kg kg^-1", bundle.nx, bundle.ny,
+                                              std::vector<double>(q2_it->second.begin(),
+                                                                  q2_it->second.end())));
+    if (const auto p2_it = surface_fields.find("surface_pressure");
+        p2_it != surface_fields.end()) {
+      const auto& t2 = surface_fields.at("air_temperature_2m");
+      std::vector<double> rh2_values;
+      std::vector<double> dewpoint2_values;
+      rh2_values.reserve(q2_it->second.size());
+      dewpoint2_values.reserve(q2_it->second.size());
+      for (std::size_t idx = 0; idx < q2_it->second.size(); ++idx) {
+        const real q2 = std::max(q2_it->second[idx], 0.0f);
+        const real pressure = std::max(p2_it->second[idx], kMinPressurePa);
+        rh2_values.push_back(static_cast<double>(
+            surface::relative_humidity_from_specific_humidity(
+                q2, t2[idx], pressure)));
+        dewpoint2_values.push_back(static_cast<double>(
+            surface::dewpoint_from_specific_humidity(q2, pressure)));
+      }
+      set_or_append_field(bundle,
+                          make_flat_slice_field("relative_humidity_2m", "%",
+                                                bundle.nx, bundle.ny,
+                                                std::move(rh2_values)));
+      set_or_append_field(bundle,
+                          make_flat_slice_field("dewpoint_2m", "K", bundle.nx,
+                                                bundle.ny,
+                                                std::move(dewpoint2_values)));
+    }
+  }
 }
 
 std::string plan_view_bundle_to_json(const PlanViewBundle& bundle) {
@@ -323,11 +670,13 @@ std::string plan_view_bundle_to_json(const PlanViewBundle& bundle) {
 
 void write_plan_view_bundle_json(const PlanViewBundle& bundle,
                                  const std::string& path) {
+  PlanViewBundle output_bundle = bundle;
+  maybe_enrich_bundle_from_companion_analysis(output_bundle, path);
   std::ofstream out(path, std::ios::binary);
   if (!out) {
     throw std::runtime_error("Failed to open plan-view output path: " + path);
   }
-  out << plan_view_bundle_to_json(bundle) << "\n";
+  out << plan_view_bundle_to_json(output_bundle) << "\n";
 }
 
 }  // namespace gwm::io

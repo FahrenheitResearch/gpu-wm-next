@@ -17,7 +17,11 @@ The bridge is:
 3. The runtime driver consumes `analysis_state.json` and
    `boundary_cache.json`.
 4. The runtime emits summary, plan-view, and map-manifest JSON artifacts.
-5. `tools/verify/` validates the bundle.
+5. When a populated companion `analysis_state.json` is present, the current
+   plan-view writer may enrich the source-driven bundle with moisture
+   diagnostics such as `specific_humidity`, `relative_humidity`, and
+   `dewpoint`.
+6. `tools/verify/` validates the bundle.
 
 ## Bundle Contents
 

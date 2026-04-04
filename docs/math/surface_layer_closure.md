@@ -39,6 +39,8 @@ must not own a second implementation of the near-surface math.
 - effective `z0m` and `z0h` are positive after roughness clamping
 - scalar diagnostics remain bounded between the surface and reference values in
   the neutral baseline
+- with fixed temperature and pressure, increasing humidity inputs should not
+  decrease neutral-limit `q2` or `rh2`
 - `rh2` is clamped to `[0, 100]`
 - wrapper and closure outputs must match exactly within floating-point
   tolerance

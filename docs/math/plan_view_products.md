@@ -28,6 +28,21 @@ The current implementation:
 This is deliberately not a restart/checkpoint format and deliberately not a
 general I/O backend. It is the first model-to-map bridge only.
 
+## Prepared-case moist enrichment
+
+The current source-driven product bridge can enrich the dry plan-view bundle
+from a populated companion `analysis_state.json` while keeping the same bundle
+semantics. The current moisture-aware diagnostics are:
+
+- `specific_humidity` as the canonical transported moisture field
+- `relative_humidity` derived from local thermodynamic state
+- `dewpoint` derived from local thermodynamic state
+
+The bridge should not expose source aliases such as
+`water_vapor_mixing_ratio` as plan-view product names. Moist products remain
+diagnostic outputs layered on top of the runtime state; they are not a second
+canonical state vector and they are not a restart schema.
+
 ## Invariants / admissibility
 
 - output schema version must be explicit
@@ -35,10 +50,14 @@ general I/O backend. It is the first model-to-map bridge only.
 - slice index must remain within `[0, nz - 1]`
 - gathered plan-view fields must preserve constant-state values
 - rendered map manifests must reference existing image artifacts
+- moist extensions must preserve the same row-major field sizing and slice
+  semantics as the existing dry bundle
 
 ## Assumptions for stability / consistency
 
 - current plan-view products are for the final dry state of a run
+- moisture enrichment extends the same plan-view schema rather than inventing a
+  second map-product container
 - current cell-centered velocity diagnostics are visualization-friendly derived
   products, not canonical prognostic state
 - current rendering is idealized-case focused, but the same plan-view schema is
@@ -49,6 +68,7 @@ general I/O backend. It is the first model-to-map bridge only.
 ## Test mapping
 
 - `tests/unit/test_plan_view_output.cpp`
+- `tests/unit/test_tracer_registry.cpp`
 - `tools/verify/run_verification.py`:
   - `plan_view_bundle`
   - `map_manifest`
@@ -58,3 +78,5 @@ general I/O backend. It is the first model-to-map bridge only.
 - end-to-end smoke path through:
   - `tools/casebuilder/run_idealized_case.py`
   - `tools/verify/render_plan_view_maps.py`
+- future moisture/tracer product checks should extend the existing plan-view
+  tests rather than fork a separate map schema

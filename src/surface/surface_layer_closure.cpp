@@ -34,6 +34,26 @@ real saturation_specific_humidity(real temperature_k, real pressure_pa) {
   return std::clamp(kRvOverRd * es_pa / denom, 0.0f, 0.05f);
 }
 
+real relative_humidity_from_specific_humidity(real specific_humidity,
+                                              real temperature_k,
+                                              real pressure_pa) {
+  const real qsat = saturation_specific_humidity(temperature_k, pressure_pa);
+  return std::clamp(
+      (qsat > 0.0f) ? (100.0f * specific_humidity / qsat) : 0.0f, 0.0f, 100.0f);
+}
+
+real dewpoint_from_specific_humidity(real specific_humidity,
+                                     real pressure_pa) {
+  const real q = std::clamp(specific_humidity, 0.0f, 1.0f);
+  const real vapor_pressure_pa =
+      pressure_pa * q / std::max(kRvOverRd + (1.0f - kRvOverRd) * q, 1.0e-6f);
+  const real vapor_pressure_hpa =
+      std::max(vapor_pressure_pa * 0.01f, 1.0e-6f);
+  const real log_term = std::log(vapor_pressure_hpa / 6.112f);
+  const real dewpoint_c = (243.5f * log_term) / (17.67f - log_term);
+  return dewpoint_c + 273.15f;
+}
+
 SurfaceLayerDiagnostics evaluate_neutral_surface_layer(
     const SurfaceLayerInputs& in) {
   gwm::require(in.z_ref > 0.0f, "Surface-layer closure requires z_ref > 0");

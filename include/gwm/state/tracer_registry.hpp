@@ -14,6 +14,8 @@ struct TracerSpec {
   bool positive = true;
 };
 
+inline constexpr const char* kSpecificHumidityTracerName = "specific_humidity";
+
 class TracerRegistry {
  public:
   int add(TracerSpec spec) {
@@ -41,5 +43,11 @@ class TracerRegistry {
  private:
   std::vector<TracerSpec> specs_;
 };
+
+[[nodiscard]] inline TracerRegistry make_specific_humidity_registry() {
+  TracerRegistry registry;
+  registry.add({kSpecificHumidityTracerName, "kg/kg", true});
+  return registry;
+}
 
 }  // namespace gwm::state

@@ -67,6 +67,15 @@ The source-run bundle is a directory-level contract that ties together:
 This bundle is not a restart format. It is the source-to-runtime-to-product
 bridge used for verification and map generation.
 
+For the first moisture/tracer runtime milestone, the prepared-case bridge is
+expected to preserve `specific_humidity` as the canonical runtime/product name.
+The `water_vapor_mixing_ratio` alias remains acceptable only at the source
+decode / ingest edge while the bridge is still being tightened.
+
+When a companion `analysis_state.json` is present next to a source-driven
+`plan_view.json`, the current product bridge may enrich the plan-view bundle
+with moisture diagnostics derived from the populated analysis humidity field.
+
 ## Invariants / Admissibility
 
 - populated analysis and boundary artifacts must match the declared grid shape
@@ -74,12 +83,16 @@ bridge used for verification and map generation.
 - boundary offsets must be strictly increasing
 - map manifests must reference existing image artifacts
 - plan-view bundles must preserve row-major storage and exact field sizes
+- moist enrichment fields, when present, must preserve the same plan-view slice
+  shape and naming contract as dry fields
 
 ## Assumptions for Stability / Consistency
 
 - source decode remains outside the runtime core
 - the populated analysis/boundary artifacts are the runtime truth inputs
 - the humidity alias is transitional and accepted only during the bridge period
+- canonical runtime and product outputs should prefer `specific_humidity`
+  even when the ingest bridge accepted an alias on input
 - the source-run bundle should be stable enough to support first real maps
   before full moist physics lands
 
@@ -87,6 +100,7 @@ bridge used for verification and map generation.
 
 - `tests/unit/test_runtime_case.cpp`
 - `tests/unit/test_ingest_contracts.cpp`
+- `tests/unit/test_tracer_registry.cpp`
 - `tools/verify/run_verification.py`
 - `tools/verify/test_source_run_bundle.py`
 - `tools/verify/render_plan_view_maps.py`

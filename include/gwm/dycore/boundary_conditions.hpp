@@ -4,6 +4,7 @@
 
 #include "gwm/domain/subdomain_descriptor.hpp"
 #include "gwm/dycore/dry_core.hpp"
+#include "gwm/state/tracer_state.hpp"
 
 namespace gwm::dycore {
 
@@ -18,6 +19,11 @@ namespace gwm::dycore {
 
 void apply_reference_boundaries(
     std::vector<DryState>& states, const std::vector<DryState>& boundary_states,
+    const std::vector<domain::SubdomainDescriptor>& layout);
+
+void apply_reference_boundaries(
+    std::vector<state::TracerState>& states,
+    const std::vector<state::TracerState>& boundary_states,
     const std::vector<domain::SubdomainDescriptor>& layout);
 
 }  // namespace gwm::dycore

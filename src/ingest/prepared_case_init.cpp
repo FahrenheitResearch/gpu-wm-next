@@ -6,6 +6,7 @@
 #include "gwm/comm/virtual_rank_layout.hpp"
 #include "gwm/core/dry_thermo.hpp"
 #include "gwm/dycore/boundary_conditions.hpp"
+#include "gwm/dycore/passive_tracer.hpp"
 
 namespace gwm::ingest {
 
@@ -170,6 +171,19 @@ std::vector<dycore::DryState> make_dry_states_from_analysis(
   return states;
 }
 
+std::vector<state::TracerState> make_specific_humidity_tracers_from_analysis(
+    const AnalysisStateIR& analysis,
+    const std::vector<dycore::DryState>& dry_states,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const std::string& label_prefix) {
+  validate_runtime_analysis(analysis);
+  const auto& specific_humidity =
+      analysis.atmosphere.values.at("specific_humidity");
+  return dycore::make_specific_humidity_tracers_from_global_field(
+      dry_states, layout, analysis.grid.nx, analysis.grid.ny, specific_humidity,
+      label_prefix);
+}
+
 PreparedCaseBoundaryUpdater::PreparedCaseBoundaryUpdater(
     AnalysisStateIR analysis, BoundaryCacheIR cache, PreparedCaseInitConfig config)
     : analysis_(std::move(analysis)),
@@ -197,6 +211,38 @@ void PreparedCaseBoundaryUpdater::apply(
   const auto boundary_states =
       make_dry_states_from_analysis(boundary_analysis, layout, "boundary_ref");
   dycore::apply_reference_boundaries(states, boundary_states, layout);
+}
+
+PreparedCaseTracerBoundaryUpdater::PreparedCaseTracerBoundaryUpdater(
+    AnalysisStateIR analysis, BoundaryCacheIR cache, PreparedCaseInitConfig config)
+    : analysis_(std::move(analysis)),
+      cache_(std::move(cache)),
+      config_(config) {}
+
+void PreparedCaseTracerBoundaryUpdater::set_step_start_time(
+    real step_start_time_seconds) {
+  step_start_time_seconds_ = std::max(step_start_time_seconds, 0.0f);
+}
+
+void PreparedCaseTracerBoundaryUpdater::apply(
+    std::vector<state::TracerState>& states,
+    const std::vector<domain::SubdomainDescriptor>& layout, real sim_time) {
+  if (cache_.empty()) {
+    return;
+  }
+
+  const auto snapshot = interpolate_boundary_snapshot(
+      cache_, static_cast<int>(std::lround(step_start_time_seconds_ + sim_time)));
+  AnalysisStateIR boundary_analysis = analysis_;
+  boundary_analysis.valid_time_utc = snapshot.valid_time_utc;
+  boundary_analysis.forecast_offset_seconds = snapshot.forecast_offset_seconds;
+  boundary_analysis.atmosphere = snapshot.atmosphere;
+  boundary_analysis.surface = snapshot.surface;
+  const auto boundary_dry_states =
+      make_dry_states_from_analysis(boundary_analysis, layout, "boundary_ref");
+  const auto boundary_tracers = make_specific_humidity_tracers_from_analysis(
+      boundary_analysis, boundary_dry_states, layout, "boundary_qv");
+  dycore::apply_reference_boundaries(states, boundary_tracers, layout);
 }
 
 }  // namespace gwm::ingest

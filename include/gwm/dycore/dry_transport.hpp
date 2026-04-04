@@ -2,7 +2,9 @@
 
 #include <vector>
 
-#include "gwm/comm/virtual_rank_layout.hpp"
+#include "gwm/core/types.hpp"
+#include "gwm/domain/subdomain_descriptor.hpp"
+#include "gwm/state/field3d.hpp"
 
 namespace gwm::dycore {
 

@@ -1,6 +1,7 @@
 #include <cmath>
 #include <vector>
 
+#include "gwm/dycore/passive_tracer.hpp"
 #include "gwm/ingest/prepared_case_init.hpp"
 
 #include "test_assert.hpp"
@@ -117,6 +118,17 @@ int main() {
             expected_theta, 1.0e-3f);
   TEST_NEAR(states[0].mom_u.storage()(0, 0, 0), expected_rho, 1.0e-5f);
   TEST_NEAR(states[0].mom_v.storage()(0, 0, 0), expected_rho * 2.0f, 1.0e-5f);
+
+  auto tracers = dycore::make_specific_humidity_tracers_from_global_field(
+      states, layout, analysis.grid.nx, analysis.grid.ny,
+      analysis.atmosphere.values.at("specific_humidity"), "prepared_case_qv");
+  TEST_CHECK(tracers.size() == 1);
+  TEST_NEAR(
+      tracers[0].mass(gwm::state::kSpecificHumidityTracerName)(0, 0, 0),
+      expected_rho * 0.005f, 1.0e-5f);
+  TEST_NEAR(
+      tracers[0].mass(gwm::state::kSpecificHumidityTracerName)(1, 1, 1),
+      expected_rho * 0.005f, 1.0e-5f);
 
   states[0].fill_constant(0.5f, 290.0f, 0.0f, 0.0f, 0.0f);
   PreparedCaseBoundaryUpdater boundary_updater(make_analysis(),

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 
 #include "gwm/obsops/screen_obsops.hpp"
 #include "gwm/surface/surface_layer_closure.hpp"
@@ -43,6 +44,25 @@ int main() {
 
   TEST_NEAR(obsops::saturation_specific_humidity(300.0f, in.psfc),
             surface::saturation_specific_humidity(300.0f, in.psfc), 1.0e-6f);
+
+  auto moister = in;
+  moister.q_ref = 0.014f;
+  moister.q_surface = 0.016f;
+  const auto moister_diag = obsops::diagnose_neutral(moister);
+  TEST_CHECK(std::isfinite(moister_diag.q2));
+  TEST_CHECK(std::isfinite(moister_diag.rh2));
+  TEST_CHECK(moister_diag.q2 > diag.q2);
+  TEST_CHECK(moister_diag.rh2 >= diag.rh2);
+  TEST_CHECK(moister_diag.rh2 <= 100.0f);
+
+  auto supersaturated = in;
+  const auto qsat_surface =
+      obsops::saturation_specific_humidity(in.tskin, in.psfc);
+  supersaturated.q_ref = qsat_surface * 1.25f;
+  supersaturated.q_surface = qsat_surface * 1.25f;
+  const auto supersaturated_diag = obsops::diagnose_neutral(supersaturated);
+  TEST_CHECK(supersaturated_diag.rh2 >= 0.0f);
+  TEST_CHECK(supersaturated_diag.rh2 <= 100.0f);
 
   auto rougher = in;
   rougher.z0m = 0.5f;

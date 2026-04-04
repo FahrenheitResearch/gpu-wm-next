@@ -60,6 +60,19 @@
 ## stage2_moist
 
 - land/surface state
+- first bounded moisture/tracer milestone:
+  - canonical `specific_humidity` as the first registry-managed tracer name
+  - `water_vapor_mixing_ratio` remains an ingest/source alias only
+  - current source-driven product path can already enrich plan-view bundles
+    with:
+    - `specific_humidity`
+    - `relative_humidity`
+    - `dewpoint`
+  - tracer transport through the timestepper is still follow-on work
+  - keep this cut passive first:
+    - no latent heating
+    - no condensation source terms
+    - no microphysics in the same patch
 - minimal surface runtime spine:
   - `SurfaceState`
   - `SurfaceStaticProperties`

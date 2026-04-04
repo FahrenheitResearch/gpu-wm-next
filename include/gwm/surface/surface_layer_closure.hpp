@@ -36,6 +36,11 @@ struct SurfaceLayerDiagnostics {
 using SurfaceLayerOutputs = SurfaceLayerDiagnostics;
 
 real saturation_specific_humidity(real temperature_k, real pressure_pa);
+real relative_humidity_from_specific_humidity(real specific_humidity,
+                                              real temperature_k,
+                                              real pressure_pa);
+real dewpoint_from_specific_humidity(real specific_humidity,
+                                     real pressure_pa);
 
 SurfaceLayerDiagnostics evaluate_neutral_surface_layer(
     const SurfaceLayerInputs& in);

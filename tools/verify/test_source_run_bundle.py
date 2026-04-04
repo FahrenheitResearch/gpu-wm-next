@@ -41,8 +41,12 @@ def main() -> None:
         bundle_dir = Path(temp_dir.name)
         cleanup = temp_dir.cleanup
     try:
-        image_path = bundle_dir / "rho_d.png"
+        image_dir = bundle_dir / "plan_view_maps"
+        image_dir.mkdir(parents=True, exist_ok=True)
+        image_path = image_dir / "rho_d.png"
+        qv_image_path = image_dir / "specific_humidity.png"
         write_text(image_path, "placeholder image")
+        write_text(qv_image_path, "placeholder image")
 
         prepared_case_manifest = {
             "schema_version": "gwm-next-prepared-case/v1",
@@ -211,11 +215,25 @@ def main() -> None:
             "initial": {
                 "total_dry_mass": 8.0,
                 "total_rho_theta_m": 2400.0,
+                "tracers": {
+                    "specific_humidity": {
+                        "total_mass": 0.08,
+                        "min": 0.01,
+                        "max": 0.01,
+                    }
+                },
             },
             "final": {
                 "total_dry_mass": 8.0,
                 "total_rho_theta_m": 2400.0,
                 "w_face": {"min": -0.1, "max": 0.1},
+                "tracers": {
+                    "specific_humidity": {
+                        "total_mass": 0.08,
+                        "min": 0.0095,
+                        "max": 0.0105,
+                    }
+                },
             },
         }
 
@@ -242,6 +260,33 @@ def main() -> None:
                     "ny": 2,
                     "storage": "row_major_yx",
                     "values": [1.0, 1.0, 1.0, 1.0],
+                },
+                {
+                    "name": "specific_humidity",
+                    "units": "kg kg^-1",
+                    "location": "cell_center",
+                    "nx": 2,
+                    "ny": 2,
+                    "storage": "row_major_yx",
+                    "values": [0.010, 0.011, 0.009, 0.0105],
+                },
+                {
+                    "name": "relative_humidity",
+                    "units": "%",
+                    "location": "cell_center",
+                    "nx": 2,
+                    "ny": 2,
+                    "storage": "row_major_yx",
+                    "values": [65.0, 70.0, 68.0, 72.0],
+                },
+                {
+                    "name": "dewpoint",
+                    "units": "K",
+                    "location": "cell_center",
+                    "nx": 2,
+                    "ny": 2,
+                    "storage": "row_major_yx",
+                    "values": [293.0, 294.0, 292.5, 293.5],
                 }
             ],
         }
@@ -249,7 +294,7 @@ def main() -> None:
         map_manifest = {
             "schema_version": "gwm-next-map-manifest/v1",
             "generated_at_utc": utc_now(),
-            "input_plan_view_path": str(bundle_dir / "plan_view.json"),
+            "input_plan_view_path": str(bundle_dir / "runtime_plan_view.json"),
             "case": "source_run_smoke",
             "slice_k": 0,
             "grid": {"nx": 2, "ny": 2},
@@ -258,6 +303,12 @@ def main() -> None:
                     "field": "rho_d",
                     "units": "kg m^-3",
                     "path": str(image_path.resolve()),
+                    "format": "png",
+                },
+                {
+                    "field": "specific_humidity",
+                    "units": "kg kg^-1",
+                    "path": str(qv_image_path.resolve()),
                     "format": "png",
                 }
             ],
@@ -285,9 +336,9 @@ def main() -> None:
         write_json(bundle_dir / "boundary_cache.json", boundary_cache)
         write_json(bundle_dir / "checkpoint_stub.json", checkpoint_stub)
         write_json(bundle_dir / "product_plan.json", product_plan)
-        write_json(bundle_dir / "summary.json", summary)
-        write_json(bundle_dir / "plan_view.json", plan_view)
-        write_json(bundle_dir / "map_manifest.json", map_manifest)
+        write_json(bundle_dir / "runtime_summary.json", summary)
+        write_json(bundle_dir / "runtime_plan_view.json", plan_view)
+        write_json(bundle_dir / "plan_view_maps" / "map_manifest.json", map_manifest)
 
         subprocess.run(
             [
@@ -330,6 +381,39 @@ def main() -> None:
                 str(verifier),
                 "--input",
                 str(bundle_dir / "boundary_cache.json"),
+            ],
+            cwd=repo_root,
+            check=True,
+        )
+
+        subprocess.run(
+            [
+                sys.executable,
+                str(verifier),
+                "--input",
+                str(bundle_dir / "runtime_summary.json"),
+            ],
+            cwd=repo_root,
+            check=True,
+        )
+
+        subprocess.run(
+            [
+                sys.executable,
+                str(verifier),
+                "--input",
+                str(bundle_dir / "runtime_plan_view.json"),
+            ],
+            cwd=repo_root,
+            check=True,
+        )
+
+        subprocess.run(
+            [
+                sys.executable,
+                str(verifier),
+                "--input",
+                str(bundle_dir / "plan_view_maps" / "map_manifest.json"),
             ],
             cwd=repo_root,
             check=True,

@@ -17,6 +17,8 @@ math.
   equal
 - scalar interpolation should remain bounded between surface and lowest-model
   level values in the neutral-limit baseline
+- with fixed temperature and pressure, increasing the reference/surface humidity
+  inputs should not decrease neutral-limit `q2` or `rh2`
 - wrapper outputs must match the shared closure outputs exactly within floating
   point tolerance
 

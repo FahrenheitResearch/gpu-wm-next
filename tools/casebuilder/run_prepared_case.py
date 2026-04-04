@@ -17,6 +17,17 @@ def load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def plan_view_field_names(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    payload = load_json(path)
+    return [
+        str(field.get("name", ""))
+        for field in payload.get("fields", [])
+        if field.get("name")
+    ]
+
+
 def find_driver_binary(explicit: str | None) -> Path:
     candidates: list[Path] = []
     if explicit:
@@ -65,6 +76,12 @@ def main() -> None:
     parser.add_argument("--plan-view-level", type=int, default=1)
     parser.add_argument("--render-maps", action="store_true")
     parser.add_argument("--map-output-dir", default=None)
+    parser.add_argument(
+        "--map-fields",
+        nargs="*",
+        default=None,
+        help="Optional subset of plan-view field names to render",
+    )
     parser.add_argument("--skip-verify", action="store_true")
     args = parser.parse_args()
 
@@ -124,6 +141,34 @@ def main() -> None:
         env,
     )
 
+    emitted_fields = plan_view_field_names(plan_view_path)
+    if args.map_fields:
+        missing_fields = [
+            field for field in args.map_fields if field not in emitted_fields
+        ]
+        if missing_fields:
+            raise RuntimeError(
+                "Requested map fields are not present in the emitted plan-view bundle: "
+                f"{', '.join(missing_fields)}. Available fields: "
+                f"{', '.join(emitted_fields) if emitted_fields else '<none>'}"
+            )
+    moist_fields = [
+        field
+        for field in emitted_fields
+        if field
+        in {
+            "specific_humidity",
+            "specific_humidity_2m",
+            "relative_humidity",
+            "relative_humidity_2m",
+            "dewpoint",
+            "dewpoint_2m",
+            "air_temperature",
+            "air_temperature_2m",
+            "air_pressure",
+        }
+    ]
+
     map_manifest_path: Path | None = None
     if args.render_maps:
         map_output_dir = (
@@ -131,17 +176,17 @@ def main() -> None:
             if args.map_output_dir
             else output_dir / "plan_view_maps"
         )
-        run_command(
-            [
-                sys.executable,
-                str(REPO_ROOT / "tools" / "verify" / "render_plan_view_maps.py"),
-                "--input",
-                str(plan_view_path),
-                "--output-dir",
-                str(map_output_dir),
-            ],
-            env,
-        )
+        render_command = [
+            sys.executable,
+            str(REPO_ROOT / "tools" / "verify" / "render_plan_view_maps.py"),
+            "--input",
+            str(plan_view_path),
+            "--output-dir",
+            str(map_output_dir),
+        ]
+        if args.map_fields:
+            render_command.extend(["--fields", *args.map_fields])
+        run_command(render_command, env)
         manifest_in_map_dir = map_output_dir / "map_manifest.json"
         if manifest_in_map_dir.exists():
             map_manifest_path = output_dir / "map_manifest.json"
@@ -181,21 +226,14 @@ def main() -> None:
                 ],
                 env,
             )
-        run_command(
-            [
-                sys.executable,
-                str(REPO_ROOT / "tools" / "verify" / "run_verification.py"),
-                "--input",
-                str(output_dir),
-                "--kind",
-                "source_run_bundle",
-            ],
-            env,
-        )
 
     print(f"Prepared-case run complete: {prepared_case_path}")
     print(f"- summary: {summary_path}")
     print(f"- plan_view: {plan_view_path}")
+    if emitted_fields:
+        print(f"- plan_view_fields: {', '.join(emitted_fields)}")
+    if moist_fields:
+        print(f"- moist_fields: {', '.join(moist_fields)}")
     if map_manifest_path is not None:
         print(f"- map_manifest: {map_manifest_path}")
 

@@ -160,4 +160,50 @@ void apply_reference_boundaries(
   }
 }
 
+void apply_reference_boundaries(
+    std::vector<state::TracerState>& states,
+    const std::vector<state::TracerState>& boundary_states,
+    const std::vector<domain::SubdomainDescriptor>& layout) {
+  gwm::require(states.size() == boundary_states.size(),
+               "Tracer-state/boundary-state size mismatch in "
+               "apply_reference_boundaries");
+  gwm::require(states.size() == layout.size(),
+               "Tracer-state/layout size mismatch in "
+               "apply_reference_boundaries");
+
+  for (std::size_t idx = 0; idx < states.size(); ++idx) {
+    auto& state = states[idx];
+    const auto& boundary = boundary_states[idx];
+    const auto& desc = layout[idx];
+
+    gwm::require(state.size() == boundary.size(),
+                 "Tracer-state count mismatch in apply_reference_boundaries");
+    for (std::size_t tracer = 0; tracer < state.size(); ++tracer) {
+      auto& target_field = state.mass(static_cast<int>(tracer));
+      const auto& source_field = boundary.mass(static_cast<int>(tracer));
+      gwm::require(target_field.nx() == source_field.nx() &&
+                       target_field.ny() == source_field.ny() &&
+                       target_field.nz() == source_field.nz(),
+                   "Tracer boundary reference dimensions must match target "
+                   "state");
+
+      if (touches_west_boundary(desc)) {
+        copy_west_cell_strip(target_field, source_field);
+      }
+
+      if (touches_east_boundary(desc)) {
+        copy_east_cell_strip(target_field, source_field);
+      }
+
+      if (touches_south_boundary(desc)) {
+        copy_south_cell_strip(target_field, source_field);
+      }
+
+      if (touches_north_boundary(desc)) {
+        copy_north_cell_strip(target_field, source_field);
+      }
+    }
+  }
+}
+
 }  // namespace gwm::dycore

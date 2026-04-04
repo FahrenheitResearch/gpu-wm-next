@@ -8,6 +8,24 @@ from pathlib import Path
 from typing import Any
 
 
+BUNDLE_OPTIONAL_CANDIDATES = {
+    "summary": ("summary.json", "runtime_summary.json"),
+    "plan_view": ("plan_view.json", "runtime_plan_view.json"),
+    "map_manifest": (
+        "map_manifest.json",
+        "plan_view_maps/map_manifest.json",
+        "maps/map_manifest.json",
+    ),
+}
+
+MOIST_FIELD_LIMITS = {
+    "specific_humidity": {"min": 0.0, "max": 1.0},
+    "specific_humidity_2m": {"min": 0.0, "max": 1.0},
+    "relative_humidity": {"min": 0.0, "max": 150.0},
+    "relative_humidity_2m": {"min": 0.0, "max": 150.0},
+}
+
+
 def utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -20,8 +38,55 @@ def is_finite_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and math.isfinite(float(value))
 
 
+def numeric_leaf_paths(value: Any, prefix: str = "") -> list[tuple[str, float]]:
+    leaves: list[tuple[str, float]] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_prefix = f"{prefix}.{key}" if prefix else str(key)
+            leaves.extend(numeric_leaf_paths(child, child_prefix))
+        return leaves
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            child_prefix = f"{prefix}[{index}]"
+            leaves.extend(numeric_leaf_paths(child, child_prefix))
+        return leaves
+    if is_finite_number(value):
+        leaves.append((prefix or "<root>", float(value)))
+    elif isinstance(value, (int, float)):
+        leaves.append((prefix or "<root>", float("nan")))
+    return leaves
+
+
+def all_finite(values: list[Any]) -> bool:
+    return all(is_finite_number(value) for value in values)
+
+
 def monotonic_offsets(offsets: list[int]) -> bool:
     return all(offsets[idx - 1] < offsets[idx] for idx in range(1, len(offsets)))
+
+
+def list_bundle_files(path: Path) -> dict[str, Path]:
+    return {
+        str(child.relative_to(path)).replace("\\", "/"): child
+        for child in path.rglob("*")
+        if child.is_file()
+    }
+
+
+def find_bundle_member(files: dict[str, Path], candidates: tuple[str, ...]) -> tuple[str | None, Path | None]:
+    for candidate in candidates:
+        if candidate in files:
+            return candidate, files[candidate]
+    return None, None
+
+
+def resolve_manifest_link(base_path: Path, raw_path: str | None) -> Path | None:
+    if not raw_path:
+        return None
+    candidate = Path(raw_path)
+    if not candidate.is_absolute():
+        candidate = (base_path.parent / candidate).resolve()
+    return candidate
 
 
 def verify_prepared_case_manifest(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -333,7 +398,7 @@ def verify_boundary_cache_payload(path: Path, payload: dict[str, Any]) -> dict[s
 
 
 def verify_source_run_bundle(path: Path) -> dict[str, Any]:
-    members = {child.name: child for child in path.iterdir() if child.is_file()}
+    members = list_bundle_files(path)
     child_reports: list[dict[str, Any]] = []
 
     required_members = [
@@ -341,7 +406,10 @@ def verify_source_run_bundle(path: Path) -> dict[str, Any]:
         "analysis_state.json",
         "boundary_cache.json",
     ]
-    optional_members = ["summary.json", "plan_view.json", "map_manifest.json"]
+    optional_members = {
+        name: find_bundle_member(members, candidates)
+        for name, candidates in BUNDLE_OPTIONAL_CANDIDATES.items()
+    }
 
     checks = [
         {
@@ -372,28 +440,58 @@ def verify_source_run_bundle(path: Path) -> dict[str, Any]:
             members["boundary_cache.json"], load_json(members["boundary_cache.json"])
         )
         child_reports.append(report)
-    if "summary.json" in members:
+    summary_relpath, summary_path = optional_members["summary"]
+    if summary_path is not None:
         report = verify_idealized_summary(
-            members["summary.json"], load_json(members["summary.json"])
+            summary_path, load_json(summary_path)
         )
         child_reports.append(report)
-    if "plan_view.json" in members:
+    plan_view_relpath, plan_view_path = optional_members["plan_view"]
+    if plan_view_path is not None:
         report = verify_plan_view_bundle(
-            members["plan_view.json"], load_json(members["plan_view.json"])
+            plan_view_path, load_json(plan_view_path)
         )
         child_reports.append(report)
-    if "map_manifest.json" in members:
+    map_manifest_relpath, map_manifest_path = optional_members["map_manifest"]
+    if map_manifest_path is not None:
         report = verify_map_manifest(
-            members["map_manifest.json"], load_json(members["map_manifest.json"])
+            map_manifest_path, load_json(map_manifest_path)
         )
         child_reports.append(report)
+
+    rendered_field_consistency = True
+    rendered_field_detail: dict[str, Any] = {"rendered": [], "plan_view_fields": []}
+    if plan_view_path is not None and map_manifest_path is not None:
+        plan_view_payload = load_json(plan_view_path)
+        map_manifest_payload = load_json(map_manifest_path)
+        plan_view_fields = {
+            str(field.get("name", ""))
+            for field in plan_view_payload.get("fields", [])
+            if field.get("name")
+        }
+        rendered_fields = {
+            str(image.get("source_field_name") or image.get("field", ""))
+            for image in map_manifest_payload.get("images", [])
+            if image.get("source_field_name") or image.get("field")
+        }
+        rendered_field_consistency = rendered_fields.issubset(plan_view_fields)
+        rendered_field_detail = {
+            "rendered": sorted(rendered_fields),
+            "plan_view_fields": sorted(plan_view_fields),
+            "plan_view_path": plan_view_relpath,
+            "map_manifest_path": map_manifest_relpath,
+        }
 
     checks.extend(
         [
             {
                 "name": "optional_members_tracked",
                 "passed": True,
-                "detail": {member: (member in members) for member in optional_members},
+                "detail": {
+                    member: relpath
+                    for member, (relpath, _) in optional_members.items()
+                    if relpath is not None
+                },
             },
             {
                 "name": "child_reports_passed",
@@ -405,6 +503,11 @@ def verify_source_run_bundle(path: Path) -> dict[str, Any]:
                     }
                     for report in child_reports
                 ],
+            },
+            {
+                "name": "rendered_fields_match_plan_view",
+                "passed": rendered_field_consistency,
+                "detail": rendered_field_detail,
             },
         ]
     )
@@ -508,6 +611,23 @@ def verify_product_plan(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
 
 def verify_map_manifest(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     images = payload.get("images", [])
+    image_fields = [
+        str(image.get("source_field_name") or image.get("field", ""))
+        for image in images
+        if image.get("source_field_name") or image.get("field")
+    ]
+    plan_view_path = resolve_manifest_link(path, payload.get("input_plan_view_path"))
+    plan_view_exists = bool(plan_view_path and plan_view_path.exists())
+    plan_view_fields: list[str] = []
+    plan_view_subset_passed = True
+    if plan_view_exists and plan_view_path is not None:
+        plan_view_payload = load_json(plan_view_path)
+        plan_view_fields = [
+            str(field.get("name", ""))
+            for field in plan_view_payload.get("fields", [])
+            if field.get("name")
+        ]
+        plan_view_subset_passed = set(image_fields).issubset(set(plan_view_fields))
     checks = [
         {
             "name": "schema_version",
@@ -524,6 +644,24 @@ def verify_map_manifest(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
             "passed": all(Path(image.get("path", "")).exists() for image in images),
             "detail": [image.get("path", "") for image in images],
         },
+        {
+            "name": "image_fields_unique",
+            "passed": len(image_fields) == len(set(image_fields)),
+            "detail": image_fields,
+        },
+        {
+            "name": "input_plan_view_exists",
+            "passed": plan_view_exists,
+            "detail": str(plan_view_path.resolve()) if plan_view_exists and plan_view_path else str(payload.get("input_plan_view_path", "")),
+        },
+        {
+            "name": "rendered_fields_subset_of_plan_view",
+            "passed": plan_view_subset_passed,
+            "detail": {
+                "rendered_fields": image_fields,
+                "plan_view_fields": plan_view_fields,
+            },
+        },
     ]
     return {
         "input_kind": "map_manifest",
@@ -537,6 +675,34 @@ def verify_map_manifest(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
 def verify_plan_view_bundle(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     fields = payload.get("fields", [])
     grid = payload.get("grid", {})
+    field_names = [str(field.get("name", "")) for field in fields if field.get("name")]
+    finite_value_checks = []
+    moist_field_details: list[dict[str, Any]] = []
+    moist_field_bounds_passed = True
+    for field in fields:
+        values = field.get("values", [])
+        finite_value_checks.append(all_finite(values))
+        name = str(field.get("name", ""))
+        if name in MOIST_FIELD_LIMITS:
+            numeric_values = [float(value) for value in values]
+            if numeric_values:
+                lower = min(numeric_values)
+                upper = max(numeric_values)
+            else:
+                lower = 0.0
+                upper = 0.0
+            limits = MOIST_FIELD_LIMITS[name]
+            field_passed = lower >= limits["min"] - 1.0e-6 and upper <= limits["max"] + 1.0e-6
+            moist_field_bounds_passed = moist_field_bounds_passed and field_passed
+            moist_field_details.append(
+                {
+                    "name": name,
+                    "min": lower,
+                    "max": upper,
+                    "units": field.get("units", ""),
+                    "passed": field_passed,
+                }
+            )
     checks = [
         {
             "name": "schema_version",
@@ -561,12 +727,29 @@ def verify_plan_view_bundle(path: Path, payload: dict[str, Any]) -> dict[str, An
             ),
             "detail": [field.get("name", "") for field in fields],
         },
+        {
+            "name": "field_names_unique",
+            "passed": len(field_names) == len(set(field_names)),
+            "detail": field_names,
+        },
+        {
+            "name": "field_values_finite",
+            "passed": all(finite_value_checks),
+            "detail": field_names,
+        },
+        {
+            "name": "moist_field_bounds",
+            "passed": moist_field_bounds_passed,
+            "detail": moist_field_details,
+        },
     ]
     return {
         "input_kind": "plan_view_bundle",
         "input_path": str(path.resolve()),
         "checked_at_utc": utc_now(),
         "checks": checks,
+        "field_names": field_names,
+        "moist_fields_present": [detail["name"] for detail in moist_field_details],
         "overall_passed": all(check["passed"] for check in checks),
     }
 
@@ -574,6 +757,8 @@ def verify_plan_view_bundle(path: Path, payload: dict[str, Any]) -> dict[str, An
 def verify_idealized_summary(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     initial = payload.get("initial", {})
     final = payload.get("final", {})
+    initial_numeric_leaves = numeric_leaf_paths(initial, "initial")
+    final_numeric_leaves = numeric_leaf_paths(final, "final")
     total_rho_initial = initial.get("total_dry_mass")
     total_rho_final = final.get("total_dry_mass")
     total_theta_initial = initial.get("total_rho_theta_m")
@@ -599,6 +784,16 @@ def verify_idealized_summary(path: Path, payload: dict[str, Any]) -> dict[str, A
             "name": "w_face_finite",
             "passed": is_finite_number(w_face.get("min")) and is_finite_number(w_face.get("max")),
             "detail": w_face,
+        },
+        {
+            "name": "initial_numeric_leaves_finite",
+            "passed": all(math.isfinite(value) for _, value in initial_numeric_leaves),
+            "detail": [path for path, _ in initial_numeric_leaves],
+        },
+        {
+            "name": "final_numeric_leaves_finite",
+            "passed": all(math.isfinite(value) for _, value in final_numeric_leaves),
+            "detail": [path for path, _ in final_numeric_leaves],
         },
     ]
     return {
