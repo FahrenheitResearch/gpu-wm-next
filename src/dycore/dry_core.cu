@@ -585,7 +585,6 @@ void advance_dry_state_ssprk3(
   sync_after_launches();
   trace_dry_core("stage1_update_done");
   fast_modes.apply(q1, layout, metrics, config);
-  sync_after_launches();
   trace_dry_core("stage1_fast_done");
 
   trace_dry_core("stage2_boundary_begin");
@@ -615,7 +614,6 @@ void advance_dry_state_ssprk3(
   sync_after_launches();
   trace_dry_core("stage2_update_done");
   fast_modes.apply(q2, layout, metrics, config);
-  sync_after_launches();
   trace_dry_core("stage2_fast_done");
 
   trace_dry_core("stage3_boundary_begin");
@@ -649,7 +647,6 @@ void advance_dry_state_ssprk3(
   sync_after_launches();
   trace_dry_core("stage3_update_done");
   fast_modes.apply(states, layout, metrics, config);
-  sync_after_launches();
   trace_dry_core("stage3_fast_done");
 }
 
