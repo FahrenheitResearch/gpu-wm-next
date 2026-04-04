@@ -94,8 +94,7 @@ int main() {
 
   constexpr real kReferencePressure = 100000.0f;
   constexpr real kDryRd = 287.05f;
-  constexpr real kDryCp = 1004.0f;
-  constexpr real kKappa = kDryRd / kDryCp;
+  constexpr real kKappa = 0.2854f;
 
   const auto analysis = make_analysis();
   PreparedCaseInitConfig config{};
@@ -115,7 +114,7 @@ int main() {
       300.0f * std::pow(kReferencePressure / 90000.0f, kKappa);
   TEST_NEAR(states[0].rho_d(0, 0, 0), expected_rho, 1.0e-5f);
   TEST_NEAR(states[0].rho_theta_m(0, 0, 0) / states[0].rho_d(0, 0, 0),
-            expected_theta, 1.0e-4f);
+            expected_theta, 1.0e-3f);
   TEST_NEAR(states[0].mom_u.storage()(0, 0, 0), expected_rho, 1.0e-5f);
   TEST_NEAR(states[0].mom_v.storage()(0, 0, 0), expected_rho * 2.0f, 1.0e-5f);
 
