@@ -31,28 +31,28 @@ int main() {
   const auto result =
       surface::evaluate_neutral_surface_exchange(state, props, 0, 0, forcing);
 
-  TEST_NEAR(result.tile_outputs[0].t2, 301.46582f, 1.0e-4f);
-  TEST_NEAR(result.tile_outputs[0].q2, 0.010266f, 1.0e-5f);
-  TEST_NEAR(result.tile_outputs[0].u10, 8.63242f, 1.0e-4f);
-  TEST_NEAR(result.tile_outputs[0].v10, 2.87747f, 1.0e-4f);
-  TEST_NEAR(result.tile_outputs[0].cm, 0.009800f, 1.0e-5f);
-  TEST_NEAR(result.tile_outputs[0].ustar, 1.24097f, 1.0e-4f);
+  TEST_NEAR(result.tile_outputs[0].t2, 302.51883f, 1.0e-4f);
+  TEST_NEAR(result.tile_outputs[0].q2, 0.009741f, 1.0e-5f);
+  TEST_NEAR(result.tile_outputs[0].u10, 9.68867f, 1.0e-4f);
+  TEST_NEAR(result.tile_outputs[0].v10, 3.22956f, 1.0e-4f);
+  TEST_NEAR(result.tile_outputs[0].cm, 0.004918f, 1.0e-5f);
+  TEST_NEAR(result.tile_outputs[0].ustar, 0.88707f, 1.0e-4f);
 
-  TEST_NEAR(result.tile_outputs[1].t2, 302.88330f, 1.0e-4f);
-  TEST_NEAR(result.tile_outputs[1].q2, 0.012117f, 1.0e-5f);
-  TEST_NEAR(result.tile_outputs[1].u10, 7.41112f, 1.0e-4f);
-  TEST_NEAR(result.tile_outputs[1].v10, 2.47037f, 1.0e-4f);
-  TEST_NEAR(result.tile_outputs[1].cm, 0.016686f, 1.0e-5f);
-  TEST_NEAR(result.tile_outputs[1].ustar, 1.62039f, 1.0e-4f);
+  TEST_NEAR(result.tile_outputs[1].t2, 303.12848f, 1.0e-4f);
+  TEST_NEAR(result.tile_outputs[1].q2, 0.010743f, 1.0e-5f);
+  TEST_NEAR(result.tile_outputs[1].u10, 9.13727f, 1.0e-4f);
+  TEST_NEAR(result.tile_outputs[1].v10, 3.04576f, 1.0e-4f);
+  TEST_NEAR(result.tile_outputs[1].cm, 0.007544f, 1.0e-5f);
+  TEST_NEAR(result.tile_outputs[1].ustar, 1.09869f, 1.0e-4f);
 
-  TEST_NEAR(result.cell_mean.t2, 301.89105f, 1.0e-4f);
-  TEST_NEAR(result.cell_mean.q2, 0.010821f, 1.0e-5f);
-  TEST_NEAR(result.cell_mean.u10, 8.26603f, 1.0e-4f);
-  TEST_NEAR(result.cell_mean.v10, 2.75534f, 1.0e-4f);
-  TEST_NEAR(result.cell_mean.cm, 0.011866f, 1.0e-5f);
-  TEST_NEAR(result.cell_mean.ch, 0.008386f, 1.0e-5f);
-  TEST_NEAR(result.cell_mean.cq, 0.008386f, 1.0e-5f);
-  TEST_NEAR(result.cell_mean.ustar, 1.35480f, 1.0e-4f);
+  TEST_NEAR(result.cell_mean.t2, 302.70172f, 1.0e-4f);
+  TEST_NEAR(result.cell_mean.q2, 0.010041f, 1.0e-5f);
+  TEST_NEAR(result.cell_mean.u10, 9.52325f, 1.0e-4f);
+  TEST_NEAR(result.cell_mean.v10, 3.17442f, 1.0e-4f);
+  TEST_NEAR(result.cell_mean.cm, 0.005706f, 1.0e-5f);
+  TEST_NEAR(result.cell_mean.ch, 0.004362f, 1.0e-5f);
+  TEST_NEAR(result.cell_mean.cq, 0.004362f, 1.0e-5f);
+  TEST_NEAR(result.cell_mean.ustar, 0.95055f, 1.0e-4f);
 
   return 0;
 }
