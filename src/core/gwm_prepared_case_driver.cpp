@@ -264,7 +264,7 @@ std::string prepared_summary_json(
       static_cast<double>(steps) * static_cast<double>(dt);
   const double elapsed_hours = elapsed_seconds / 3600.0;
   std::ostringstream oss;
-  oss << std::setprecision(10);
+  oss << std::setprecision(17);
   oss << "{\n";
   oss << "  \"case\": \"prepared_case\",\n";
   oss << "  \"source\": \"" << gwm::ingest::to_string(runtime_case.analysis.source)

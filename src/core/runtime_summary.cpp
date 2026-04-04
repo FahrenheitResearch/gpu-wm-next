@@ -180,7 +180,7 @@ RuntimeStateSummary summarize_runtime_state(
 std::string runtime_state_summary_to_json(const RuntimeStateSummary& summary,
                                           const std::string& indent) {
   std::ostringstream oss;
-  oss << std::setprecision(10);
+  oss << std::setprecision(17);
   oss << "{\n";
   oss << indent << "\"total_dry_mass\": " << summary.dry.total_dry_mass << ",\n";
   oss << indent << "\"total_rho_theta_m\": " << summary.dry.total_rho_theta_m
