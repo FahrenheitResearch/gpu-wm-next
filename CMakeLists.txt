@@ -45,6 +45,7 @@ add_library(
   src/ingest/source_catalog.cpp
   src/obsops/screen_obsops.cpp
   src/surface/surface_layer_closure.cpp
+  src/surface/surface_layer_exchange.cpp
 )
 
 target_include_directories(gwm_core PUBLIC include)
@@ -118,6 +119,10 @@ gwm_add_test(test_surface_obsops tests/unit/test_surface_obsops.cpp)
 gwm_add_test(
   test_surface_layer_closure
   tests/unit/test_surface_layer_closure.cpp
+)
+gwm_add_test(
+  test_surface_tile_permutation
+  tests/property/test_surface_tile_permutation.cpp
 )
 gwm_add_test(
   test_virtual_rank_equivalence
@@ -205,6 +210,10 @@ gwm_add_test(
 gwm_add_test(
   test_mountain_wave_evolution
   tests/regression/test_mountain_wave_evolution.cpp
+)
+gwm_add_test(
+  test_surface_layer_neutral_reference
+  tests/regression/test_surface_layer_neutral_reference.cpp
 )
 gwm_add_test(
   test_scalar_mass_conservation
