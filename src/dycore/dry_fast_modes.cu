@@ -349,6 +349,7 @@ __global__ void update_fast_vertical_momentum_kernel(
 
 __global__ void update_density_from_divergence_kernel(
     real* rho_d, const real* mom_u, const real* mom_v, const real* mom_w,
+    const real* mom_u_base, const real* mom_v_base, const real* mom_w_base,
     const real* inv_dz_cell_metric, int metrics_nx, int metrics_ny,
     bool periodic_x, bool periodic_y, int i_begin, int j_begin, int nx, int ny,
     int nz, int halo, real dx, real dy, real dt_fast) {
@@ -375,9 +376,14 @@ __global__ void update_density_from_divergence_kernel(
   };
 
   const real div_mass =
-      (mom_u[xface_idx(i + 1, j, k)] - mom_u[xface_idx(i, j, k)]) / dx +
-      (mom_v[yface_idx(i, j + 1, k)] - mom_v[yface_idx(i, j, k)]) / dy +
-      (mom_w[zface_idx(i, j, k + 1)] - mom_w[zface_idx(i, j, k)]) *
+      ((mom_u[xface_idx(i + 1, j, k)] - mom_u_base[xface_idx(i + 1, j, k)]) -
+       (mom_u[xface_idx(i, j, k)] - mom_u_base[xface_idx(i, j, k)])) /
+          dx +
+      ((mom_v[yface_idx(i, j + 1, k)] - mom_v_base[yface_idx(i, j + 1, k)]) -
+       (mom_v[yface_idx(i, j, k)] - mom_v_base[yface_idx(i, j, k)])) /
+          dy +
+      ((mom_w[zface_idx(i, j, k + 1)] - mom_w_base[zface_idx(i, j, k + 1)]) -
+       (mom_w[zface_idx(i, j, k)] - mom_w_base[zface_idx(i, j, k)])) *
           inv_dz_cell_metric[metric_storage_index(
               wrap_metric_index(i_begin + i, metrics_nx, periodic_x),
               wrap_metric_index(j_begin + j, metrics_ny, periodic_y), k,
@@ -409,12 +415,18 @@ void apply_local_split_explicit_fast_modes(
   std::vector<state::Field3D<real>> pressure_fields;
   std::vector<state::Field3D<real>> rho_ref_fields;
   std::vector<state::Field3D<real>> pressure_ref_fields;
+  std::vector<state::FaceField<real>> mom_u_base;
+  std::vector<state::FaceField<real>> mom_v_base;
+  std::vector<state::FaceField<real>> mom_w_base;
   theta_halo.reserve(states.size());
   rho_theta_fast.reserve(states.size());
   rho_halo.reserve(states.size());
   pressure_fields.reserve(states.size());
   rho_ref_fields.reserve(states.size());
   pressure_ref_fields.reserve(states.size());
+  mom_u_base.reserve(states.size());
+  mom_v_base.reserve(states.size());
+  mom_w_base.reserve(states.size());
   for (const auto& state : states) {
     theta_halo.push_back(state.rho_theta_m.clone_empty_like("_fast_theta"));
     rho_theta_fast.push_back(
@@ -424,6 +436,18 @@ void apply_local_split_explicit_fast_modes(
     rho_ref_fields.push_back(state.rho_d.clone_empty_like("_fast_rho_ref"));
     pressure_ref_fields.push_back(
         state.rho_d.clone_empty_like("_fast_pressure_ref"));
+    mom_u_base.emplace_back(state.rho_d.nx(), state.rho_d.ny(), state.rho_d.nz(),
+                            state.rho_d.halo(), state::FaceOrientation::X,
+                            "_fast_mom_u_base");
+    mom_u_base.back().storage().copy_all_from(state.mom_u.storage());
+    mom_v_base.emplace_back(state.rho_d.nx(), state.rho_d.ny(), state.rho_d.nz(),
+                            state.rho_d.halo(), state::FaceOrientation::Y,
+                            "_fast_mom_v_base");
+    mom_v_base.back().storage().copy_all_from(state.mom_v.storage());
+    mom_w_base.emplace_back(state.rho_d.nx(), state.rho_d.ny(), state.rho_d.nz(),
+                            state.rho_d.halo(), state::FaceOrientation::Z,
+                            "_fast_mom_w_base");
+    mom_w_base.back().storage().copy_all_from(state.mom_w.storage());
   }
   constexpr int scalar_block = 256;
   for (std::size_t n = 0; n < states.size(); ++n) {
@@ -436,6 +460,13 @@ void apply_local_split_explicit_fast_modes(
   }
   sync_after_launches();
   comm::HaloExchange::exchange_scalar(theta_halo, layout);
+  comm::HaloExchange::exchange_face(mom_u_base, layout);
+  comm::HaloExchange::exchange_face(mom_v_base, layout);
+  comm::HaloExchange::exchange_face(mom_w_base, layout);
+  comm::HaloExchange::synchronize_owned_face_interfaces(mom_u_base, layout);
+  comm::HaloExchange::synchronize_owned_face_interfaces(mom_v_base, layout);
+  comm::HaloExchange::exchange_face(mom_u_base, layout);
+  comm::HaloExchange::exchange_face(mom_v_base, layout);
 
   real* rho_ref_levels = nullptr;
   real* pressure_ref_levels = nullptr;
@@ -597,6 +628,8 @@ void apply_local_split_explicit_fast_modes(
             states[n].rho_d.data(), states[n].mom_u.storage().data(),
             states[n].mom_v.storage().data(),
             states[n].mom_w.storage().data(),
+            mom_u_base[n].storage().data(), mom_v_base[n].storage().data(),
+            mom_w_base[n].storage().data(),
             metrics.inv_dz_cell_metric.data(), metrics.nx, metrics.ny,
             metrics.periodic_x, metrics.periodic_y, layout[n].i_begin,
             layout[n].j_begin, states[n].rho_d.nx(), states[n].rho_d.ny(),

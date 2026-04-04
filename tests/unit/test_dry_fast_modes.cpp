@@ -157,11 +157,10 @@ int main() {
           domain.layout, 1.0f, 300.0f, 0.0f, 0.0f, 0.0f, "toggle_rho_on");
       auto states_density_off = dycore::make_constant_dry_state(
           domain.layout, 1.0f, 300.0f, 0.0f, 0.0f, 0.0f, "toggle_rho_off");
-
-      auto& density_on_rank0 = states_density_on.front();
-      auto& density_off_rank0 = states_density_off.front();
-      density_on_rank0.mom_u.storage()(5, 4, 3) = 0.25f;
-      density_off_rank0.mom_u.storage()(5, 4, 3) = 0.25f;
+      seed_center_density_pulse(states_density_on, domain.layout, cfg, 0.02f,
+                                300.0f);
+      seed_center_density_pulse(states_density_off, domain.layout, cfg, 0.02f,
+                                300.0f);
 
       const double mass_before = total_dry_mass(states_density_on);
 
@@ -180,14 +179,16 @@ int main() {
       fast_modes.apply(states_density_off, domain.layout, domain.metrics,
                        cfg_density_off);
 
+      const auto summary_density_on =
+          dycore::summarize_dry_states(states_density_on);
+      const auto summary_density_off =
+          dycore::summarize_dry_states(states_density_off);
+
       TEST_NEAR(mass_before, total_dry_mass(states_density_on), 1.0e-5);
       TEST_NEAR(mass_before, total_dry_mass(states_density_off), 1.0e-5);
-      TEST_NEAR(density_off_rank0.rho_d(4, 4, 3), 1.0f, 1.0e-7f);
-      TEST_NEAR(density_off_rank0.rho_d(5, 4, 3), 1.0f, 1.0e-7f);
-      TEST_CHECK(density_on_rank0.rho_d(4, 4, 3) < 1.0f);
-      TEST_CHECK(density_on_rank0.rho_d(5, 4, 3) > 1.0f);
-      TEST_NEAR(density_on_rank0.mom_u.storage()(5, 4, 3), 0.25f, 1.0e-7f);
-      TEST_NEAR(density_off_rank0.mom_u.storage()(5, 4, 3), 0.25f, 1.0e-7f);
+      TEST_NEAR(summary_density_off.rho_d.max, 1.02, 1.0e-6);
+      TEST_NEAR(summary_density_off.rho_d.min, 1.0, 1.0e-6);
+      TEST_CHECK(abs_value(summary_density_on.rho_d.max - 1.02) > 1.0e-5);
     }
 
     return 0;

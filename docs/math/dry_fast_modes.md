@@ -19,6 +19,8 @@ density each substep.
 - Use `dt_fast = dt / fast_substeps`.
 - Extract a haloed `theta_m` field once at fast-mode entry and rebuild
   `rho_d theta_m` from the evolving `rho_d` each substep.
+- Stage the face-momentum field present at fast-mode entry as the slow/background
+  reference for the current subcycle.
 - Reconstruct pressure each substep from the canonical conserved state.
 - Update `mom_u` and `mom_v` from face-centered pressure differences.
 - Update `mom_w` from a perturbation-form vertical pressure-gradient plus
@@ -28,7 +30,9 @@ density each substep.
 - Use terrain-aware interface heights and inverse cell thickness from
   `GridMetrics` in the vertical acoustic branch.
 - Exchange face halos.
-- Update `rho_d` from the divergence of the updated face momenta.
+- Update `rho_d` from the divergence of the fast perturbation face momenta,
+  i.e. the current face momenta minus the staged fast-mode-entry reference
+  momenta.
 - Rebuild the conserved thermodynamic variable from the updated `rho_d` and the
   fixed fast-mode `theta_m`.
 
@@ -48,6 +52,8 @@ nonlinear momentum transport, Coriolis, real MPI exchange, or moist coupling.
 - `dt_fast` is small enough for the explicit local acoustic update
 - scalar and face halo exchange are correct before operators that need neighbor
   values
+- the density fast branch acts on the acoustic perturbation momenta instead of
+  re-advancing the full background transport already owned by the slow SSPRK path
 - the flat-limit reference reduces exactly to the prior 1-D profile behavior
 - the terrain-aware reference is rebuilt from the local column state and metricized
   heights so terrain hydrostatic-rest remains near rest
