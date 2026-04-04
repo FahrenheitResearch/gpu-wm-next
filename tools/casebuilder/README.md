@@ -7,6 +7,8 @@ Current entry points:
 
 - `check_external_toolchain.py`
 - `prepare_case.py`
+- `populate_prepared_case.py`
+- `run_prepared_case.py`
 - `run_idealized_case.py`
 - `toolchain_manifest.example.toml`
 
@@ -69,15 +71,19 @@ The output directory defaults to:
 
 - `cases/prepared/<domain-name>_<source>/`
 
-## Idealized Bridge
+## Runtime Bridges
 
-`run_idealized_case.py` remains the current concrete executable path into the
-model. The new `product_plan.json` artifact explicitly records that
-`idealized_summary_json` is the current verification/product bridge while real
-source-driven map products are still being built out.
+`run_idealized_case.py` remains the fastest local dry-core path into the model.
+The prepared/source-driven path is now also executable:
 
-It can also request a plan-view field slice from the driver and render actual
-map images in one step.
+1. `prepare_case.py` writes the prepared-case manifest and artifact contract.
+2. `populate_prepared_case.py` fills the analysis and boundary JSON artifacts
+   from the configured external toolchain.
+3. `run_prepared_case.py` drives `gwm_prepared_case_driver`, renders plan-view
+   maps, and runs verification on the resulting bundle.
+
+Both wrappers can request a plan-view field slice from the driver and render
+actual map images in one step.
 
 Example:
 
@@ -97,3 +103,34 @@ That produces:
 - `<case>.plan_view.json`
 - `<case>.plan_view_maps/map_manifest.json`
 - one rendered image per emitted field
+
+Prepared/source-driven example:
+
+```powershell
+python tools/casebuilder/prepare_case.py `
+  --source hrrr `
+  --domain-name central_plains_smoke `
+  --cycle-time-utc 2026-04-04T00:00:00Z `
+  --forecast-hours 1 `
+  --nx 24 --ny 24 `
+  --center-lat 39.0 --center-lon -97.0 `
+  --pressure-levels-hpa 1000,850,700
+
+python tools/casebuilder/run_prepared_case.py `
+  --prepared-case cases/prepared/central_plains_smoke_hrrr/prepared_case_manifest.json `
+  --populate `
+  --steps 1 `
+  --dt 2.0 `
+  --fast-substeps 2 `
+  --plan-view-level 1 `
+  --render-maps
+```
+
+That produces a verified source-run bundle containing:
+
+- `prepared_case_manifest.json`
+- `analysis_state.json`
+- `boundary_cache.json`
+- `summary.json`
+- `plan_view.json`
+- `map_manifest.json`
