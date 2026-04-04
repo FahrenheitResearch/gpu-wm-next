@@ -60,6 +60,10 @@ def default_driver_path(repo_root: Path) -> Path:
     return repo_root / "build-ninja" / f"gwm_idealized_driver{suffix}"
 
 
+def resolve_output_path(repo_root: Path, path: Path) -> Path:
+    return path if path.is_absolute() else (repo_root / path).resolve()
+
+
 def default_render_script(repo_root: Path) -> Path:
     return repo_root / "tools" / "verify" / "render_plan_view_maps.py"
 
@@ -120,9 +124,18 @@ def main() -> None:
         raise ValueError("Expected grid/terrain/initialization sections to be mappings")
 
     summary_json = args.summary_json or args.case_file.with_suffix(".summary.json")
+    summary_json = resolve_output_path(repo_root, summary_json)
     plan_view_json = args.plan_view_json
     if args.render_maps and plan_view_json is None:
         plan_view_json = args.case_file.with_suffix(".plan_view.json")
+    if plan_view_json is not None:
+        plan_view_json = resolve_output_path(repo_root, plan_view_json)
+
+    map_output_dir = (
+        resolve_output_path(repo_root, args.map_output_dir)
+        if args.map_output_dir is not None
+        else None
+    )
 
     cmd = [str(driver), "--case", str(init.get("kind", "density_current"))]
     for key in ("nx", "ny", "nz", "dx", "dy", "z_top"):
@@ -191,8 +204,8 @@ def main() -> None:
             "--title-prefix",
             str(init.get("kind", "idealized")),
         ]
-        if args.map_output_dir is not None:
-            render_cmd.extend(["--output-dir", str(args.map_output_dir)])
+        if map_output_dir is not None:
+            render_cmd.extend(["--output-dir", str(map_output_dir)])
         print("Rendering maps:")
         print(" ".join(render_cmd))
         subprocess.run(render_cmd, check=True)
