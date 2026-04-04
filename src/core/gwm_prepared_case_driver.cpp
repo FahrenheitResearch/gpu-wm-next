@@ -1,6 +1,8 @@
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -24,6 +26,11 @@ struct DriverOptions {
   std::string boundary_cache_path;
   gwm::ingest::PreparedCaseInitConfig init_config{};
   gwm::dycore::DryStepperConfig step_config{};
+  gwm::physics::WarmRainConfig warm_rain_config = [] {
+    gwm::physics::WarmRainConfig config{};
+    config.rain_terminal_velocity = 12.0f;
+    return config;
+  }();
   int steps = 1;
   bool enable_boundaries = true;
   bool enable_fast_modes = true;
@@ -50,11 +57,76 @@ bool driver_trace_enabled() {
   return std::string(value) != "0" && std::string(value) != "false";
 }
 
+std::optional<int> parse_optional_env_int(const char* name) {
+  const char* value = std::getenv(name);
+  if (value == nullptr || *value == '\0') {
+    return std::nullopt;
+  }
+  return std::stoi(value);
+}
+
+std::string phase_summary_dir() {
+  const char* value = std::getenv("GWM_PHASE_SUMMARY_DIR");
+  return value == nullptr ? std::string{} : std::string(value);
+}
+
+bool phase_summary_step_selected(int step) {
+  const auto exact_step = parse_optional_env_int("GWM_PHASE_SUMMARY_STEP");
+  if (exact_step.has_value()) {
+    return step == *exact_step;
+  }
+  const auto min_step = parse_optional_env_int("GWM_PHASE_SUMMARY_STEP_MIN");
+  const auto max_step = parse_optional_env_int("GWM_PHASE_SUMMARY_STEP_MAX");
+  if (min_step.has_value() && step < *min_step) {
+    return false;
+  }
+  if (max_step.has_value() && step > *max_step) {
+    return false;
+  }
+  return true;
+}
+
 void trace_driver(const std::string& message) {
   if (!driver_trace_enabled()) {
     return;
   }
   std::cerr << "[gwm_prepared_case_driver] " << message << std::endl;
+}
+
+void maybe_write_phase_summary(
+    int step, gwm::real step_start_seconds, const std::string& phase,
+    const std::vector<gwm::dycore::DryState>& states,
+    const std::vector<gwm::state::TracerState>& tracers,
+    const std::vector<gwm::domain::SubdomainDescriptor>& layout,
+    const gwm::domain::GridMetrics& metrics,
+    const std::vector<gwm::physics::WarmRainSurfaceAccumulation>&
+        surface_precip_accum) {
+  const auto dir = phase_summary_dir();
+  if (dir.empty() || !phase_summary_step_selected(step)) {
+    return;
+  }
+
+  std::filesystem::create_directories(dir);
+  const auto summary = gwm::core::summarize_runtime_state(
+      states, tracers, layout, metrics, &surface_precip_accum);
+  std::ostringstream json;
+  json << "{\n";
+  json << "  \"step\": " << step << ",\n";
+  json << "  \"step_start_seconds\": " << step_start_seconds << ",\n";
+  json << "  \"phase\": \"" << phase << "\",\n";
+  json << "  \"summary\": "
+       << gwm::core::runtime_state_summary_to_json(summary, "    ") << "\n";
+  json << "}\n";
+
+  std::ostringstream filename;
+  filename << "step_" << step << "_" << phase << ".json";
+  const auto path = std::filesystem::path(dir) / filename.str();
+  std::ofstream out(path, std::ios::binary);
+  if (!out) {
+    throw std::runtime_error("Failed to open phase summary path: " +
+                             path.string());
+  }
+  out << json.str();
 }
 
 template <typename T>
@@ -110,6 +182,24 @@ void parse_args(int argc, char** argv, DriverOptions& opts) {
       opts.enable_tracer_transport = parse_bool(require_value(i, argc, argv));
     } else if (arg == "--enable-warm-rain") {
       opts.enable_warm_rain = parse_bool(require_value(i, argc, argv));
+    } else if (arg == "--warm-rain-condensation-relaxation") {
+      opts.warm_rain_config.condensation_relaxation =
+          parse_value<float>(require_value(i, argc, argv));
+    } else if (arg == "--warm-rain-cloud-autoconversion-threshold") {
+      opts.warm_rain_config.cloud_autoconversion_threshold =
+          parse_value<float>(require_value(i, argc, argv));
+    } else if (arg == "--warm-rain-cloud-autoconversion-rate") {
+      opts.warm_rain_config.cloud_autoconversion_rate =
+          parse_value<float>(require_value(i, argc, argv));
+    } else if (arg == "--warm-rain-rain-evaporation-rate") {
+      opts.warm_rain_config.rain_evaporation_rate =
+          parse_value<float>(require_value(i, argc, argv));
+    } else if (arg == "--warm-rain-terminal-velocity") {
+      opts.warm_rain_config.rain_terminal_velocity =
+          parse_value<float>(require_value(i, argc, argv));
+    } else if (arg == "--warm-rain-enable-latent-heating") {
+      opts.warm_rain_config.enable_latent_heating =
+          parse_bool(require_value(i, argc, argv));
     } else if (arg == "--dt") {
       opts.step_config.dt = parse_value<float>(require_value(i, argc, argv));
     } else if (arg == "--fast-substeps") {
@@ -164,6 +254,7 @@ std::string prepared_summary_json(
     bool enable_fast_modes, bool enable_tracer_transport,
     bool enable_warm_rain, bool fast_update_horizontal_momentum,
     bool fast_update_density,
+    const gwm::physics::WarmRainConfig& warm_rain_config,
     const gwm::ingest::PreparedCaseBalanceDiagnostics& startup_balance,
     const gwm::surface::SurfaceRuntimeInitResult& surface_runtime,
     const gwm::core::RuntimeStateSummary& initial,
@@ -195,6 +286,22 @@ std::string prepared_summary_json(
       << (fast_update_horizontal_momentum ? "true" : "false") << ",\n";
   oss << "  \"fast_update_density\": "
       << (fast_update_density ? "true" : "false") << ",\n";
+  oss << "  \"warm_rain\": {\n";
+  oss << "    \"condensation_relaxation\": "
+      << warm_rain_config.condensation_relaxation << ",\n";
+  oss << "    \"cloud_autoconversion_threshold\": "
+      << warm_rain_config.cloud_autoconversion_threshold << ",\n";
+  oss << "    \"cloud_autoconversion_rate\": "
+      << warm_rain_config.cloud_autoconversion_rate << ",\n";
+  oss << "    \"rain_evaporation_rate\": "
+      << warm_rain_config.rain_evaporation_rate << ",\n";
+  oss << "    \"rain_terminal_velocity\": "
+      << warm_rain_config.rain_terminal_velocity << ",\n";
+  oss << "    \"sedimentation_layer_depth_m\": "
+      << warm_rain_config.sedimentation_layer_depth_m << ",\n";
+  oss << "    \"enable_latent_heating\": "
+      << (warm_rain_config.enable_latent_heating ? "true" : "false") << "\n";
+  oss << "  },\n";
   oss << "  \"elapsed_seconds\": " << elapsed_seconds << ",\n";
   oss << "  \"elapsed_hours\": " << elapsed_hours << ",\n";
   oss << "  \"grid\": {\n";
@@ -311,9 +418,8 @@ int main(int argc, char** argv) {
         opts.enable_fast_modes
             ? static_cast<gwm::dycore::FastModeIntegrator&>(local_fast_modes)
             : static_cast<gwm::dycore::FastModeIntegrator&>(null_fast_modes);
-    gwm::physics::WarmRainConfig warm_rain_config{};
+    auto warm_rain_config = opts.warm_rain_config;
     warm_rain_config.dt = opts.step_config.dt;
-    warm_rain_config.rain_terminal_velocity = 12.0f;
 
     gwm::real sim_time = 0.0f;
     for (int step = 0; step < opts.steps; ++step) {
@@ -329,11 +435,15 @@ int main(int argc, char** argv) {
                                             opts.step_config, boundary_updater,
                                             fast_modes);
       trace_driver("step_" + std::to_string(step) + "_dry_done");
+      maybe_write_phase_summary(step, sim_time, "dry", states, tracers, layout,
+                                metrics, surface_precip_accum);
       if (opts.enable_tracer_transport) {
         gwm::dycore::advance_passive_tracers_ssprk3(
             tracers, states, layout, metrics, opts.step_config,
             tracer_boundary_updater);
         trace_driver("step_" + std::to_string(step) + "_tracers_done");
+        maybe_write_phase_summary(step, sim_time, "tracers", states, tracers,
+                                  layout, metrics, surface_precip_accum);
       } else {
         trace_driver("step_" + std::to_string(step) + "_tracers_skipped");
       }
@@ -342,6 +452,8 @@ int main(int argc, char** argv) {
             states, tracers, layout, metrics, warm_rain_config,
             &surface_precip_accum);
         trace_driver("step_" + std::to_string(step) + "_warm_rain_done");
+        maybe_write_phase_summary(step, sim_time, "warm_rain", states, tracers,
+                                  layout, metrics, surface_precip_accum);
       } else {
         trace_driver("step_" + std::to_string(step) + "_warm_rain_skipped");
       }
@@ -364,6 +476,7 @@ int main(int argc, char** argv) {
                               opts.enable_warm_rain,
                               opts.step_config.fast_update_horizontal_momentum,
                               opts.step_config.fast_update_density,
+                              warm_rain_config,
                               startup_balance,
                               surface_runtime, initial, final);
 
