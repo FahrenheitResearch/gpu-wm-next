@@ -7,6 +7,17 @@ int main() {
 
   TEST_CHECK(to_string(SourceKind::HRRR) == "HRRR");
   TEST_CHECK(to_string(SourceKind::RRFS) == "RRFS");
+  TEST_CHECK(source_kind_from_string("hrrr") == SourceKind::HRRR);
+  TEST_CHECK(source_kind_from_string("rrfs") == SourceKind::RRFS);
+  TEST_CHECK(source_kind_from_string("EcMwF") == SourceKind::ECMWF);
+
+  bool bad_source_threw = false;
+  try {
+    (void)source_kind_from_string("not_a_source");
+  } catch (const std::runtime_error&) {
+    bad_source_threw = true;
+  }
+  TEST_CHECK(bad_source_threw);
 
   auto hrrr = make_adapter(SourceKind::HRRR);
   TEST_CHECK(hrrr != nullptr);

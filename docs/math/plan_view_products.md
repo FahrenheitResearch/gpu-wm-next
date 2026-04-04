@@ -41,8 +41,10 @@ general I/O backend. It is the first model-to-map bridge only.
 - current plan-view products are for the final dry state of a run
 - current cell-centered velocity diagnostics are visualization-friendly derived
   products, not canonical prognostic state
-- current rendering is idealized-case focused and does not yet imply real-data
-  map parity
+- current rendering is idealized-case focused, but the same plan-view schema is
+  now used as the source-driven prepared-case bridge into map products
+- real-data map parity still depends on the source-run runtime path, not just
+  on the renderer
 
 ## Test mapping
 
@@ -50,6 +52,9 @@ general I/O backend. It is the first model-to-map bridge only.
 - `tools/verify/run_verification.py`:
   - `plan_view_bundle`
   - `map_manifest`
+- source-driven bundle verification path:
+  - `tools/verify/test_source_run_bundle.py`
+  - `tools/verify/run_verification.py` on prepared-case/source-run directories
 - end-to-end smoke path through:
   - `tools/casebuilder/run_idealized_case.py`
   - `tools/verify/render_plan_view_maps.py`

@@ -1,5 +1,7 @@
 #include <stdexcept>
 
+#include "gwm/ingest/canonical_ir.hpp"
+#include "gwm/surface/surface_runtime_init.hpp"
 #include "gwm/surface/surface_static_properties.hpp"
 
 #include "test_assert.hpp"
@@ -70,6 +72,45 @@ int main() {
     bad_index_threw = true;
   }
   TEST_CHECK(bad_index_threw);
+
+  gwm::ingest::FieldBundle2D static_surface_fields{};
+  static_surface_fields.values["terrain_height"] = {10.0f, 20.0f, 30.0f, 40.0f};
+  static_surface_fields.values["land_mask"] = {1.0f, 0.0f, 1.0f, 0.0f};
+  static_surface_fields.values["land_use_index"] = {1.0f, 2.0f, 3.0f, 4.0f};
+
+  const auto initialized =
+      make_surface_static_properties_from_canonical_fields(static_surface_fields,
+                                                           2, 2, 1);
+  TEST_CHECK(initialized.is_single_tile());
+  TEST_NEAR(initialized.tile_fraction_sum(0, 0), 1.0f, 1.0e-6f);
+  TEST_CHECK(initialized.kind(0, 0, 0) == SurfaceKind::Land);
+  TEST_CHECK(initialized.kind(0, 1, 0) == SurfaceKind::Water);
+  TEST_NEAR(initialized.z0m(0, 0, 0), 0.10f, 1.0e-6f);
+  TEST_NEAR(initialized.z0m(0, 1, 0), 0.0002f, 1.0e-6f);
+  TEST_NEAR(initialized.z0h(0, 0, 0), 0.02f, 1.0e-6f);
+  TEST_NEAR(initialized.z0h(0, 1, 0), 0.0002f, 1.0e-6f);
+  initialized.validate();
+
+  bool missing_land_mask_threw = false;
+  try {
+    gwm::ingest::FieldBundle2D missing_land_mask{};
+    missing_land_mask.values["terrain_height"] = {10.0f, 20.0f, 30.0f, 40.0f};
+    missing_land_mask.values["land_use_index"] = {1.0f, 2.0f, 3.0f, 4.0f};
+    (void)make_surface_static_properties_from_canonical_fields(
+        missing_land_mask, 2, 2, 1);
+  } catch (const std::runtime_error&) {
+    missing_land_mask_threw = true;
+  }
+  TEST_CHECK(missing_land_mask_threw);
+
+  bool multi_tile_threw = false;
+  try {
+    (void)make_surface_static_properties_from_canonical_fields(
+        static_surface_fields, 2, 2, 2);
+  } catch (const std::runtime_error&) {
+    multi_tile_threw = true;
+  }
+  TEST_CHECK(multi_tile_threw);
 
   return 0;
 }

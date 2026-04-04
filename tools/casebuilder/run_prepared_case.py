@@ -1,0 +1,204 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def find_driver_binary(explicit: str | None) -> Path:
+    candidates: list[Path] = []
+    if explicit:
+        candidates.append(Path(explicit))
+
+    for relative in (
+        "build-ninja/gwm_prepared_case_driver.exe",
+        "build/gwm_prepared_case_driver.exe",
+        "build-vs/Release/gwm_prepared_case_driver.exe",
+        "build-vs/Debug/gwm_prepared_case_driver.exe",
+    ):
+        candidates.append(REPO_ROOT / relative)
+
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved.exists():
+            return resolved
+    raise FileNotFoundError(
+        "Unable to find gwm_prepared_case_driver.exe; build the repo first or pass --driver-binary"
+    )
+
+
+def run_command(command: list[str], env: dict[str, str]) -> None:
+    print("+", " ".join(command))
+    subprocess.run(command, check=True, cwd=REPO_ROOT, env=env)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Populate and run a prepared-case manifest through the source-driven driver."
+    )
+    parser.add_argument(
+        "--prepared-case",
+        required=True,
+        help="Path to prepared_case_manifest.json",
+    )
+    parser.add_argument(
+        "--driver-binary",
+        default=None,
+        help="Optional explicit path to gwm_prepared_case_driver executable",
+    )
+    parser.add_argument("--populate", action="store_true")
+    parser.add_argument("--steps", type=int, default=1)
+    parser.add_argument("--dt", type=float, default=2.0)
+    parser.add_argument("--fast-substeps", type=int, default=2)
+    parser.add_argument("--plan-view-level", type=int, default=1)
+    parser.add_argument("--render-maps", action="store_true")
+    parser.add_argument("--map-output-dir", default=None)
+    parser.add_argument("--skip-verify", action="store_true")
+    args = parser.parse_args()
+
+    prepared_case_path = Path(args.prepared_case).resolve()
+    prepared_case = load_json(prepared_case_path)
+    output_dir = prepared_case_path.parent
+
+    env = os.environ.copy()
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("CUDA_LAUNCH_BLOCKING", "1")
+
+    if args.populate:
+        run_command(
+            [
+                sys.executable,
+                str(REPO_ROOT / "tools" / "casebuilder" / "populate_prepared_case.py"),
+                "--prepared-case",
+                str(prepared_case_path),
+            ],
+            env,
+        )
+        prepared_case = load_json(prepared_case_path)
+
+    artifacts = prepared_case.get("artifacts", {})
+    analysis_state = artifacts.get("analysis_state")
+    boundary_cache = artifacts.get("boundary_cache")
+    if not analysis_state or not boundary_cache:
+        raise RuntimeError(
+            "Prepared case is missing populated analysis_state/boundary_cache artifacts. "
+            "Run with --populate or populate the manifest first."
+        )
+
+    summary_path = output_dir / "summary.json"
+    plan_view_path = output_dir / "plan_view.json"
+    driver_binary = find_driver_binary(args.driver_binary)
+
+    run_command(
+        [
+            str(driver_binary),
+            "--analysis-state",
+            analysis_state,
+            "--boundary-cache",
+            boundary_cache,
+            "--steps",
+            str(args.steps),
+            "--dt",
+            str(args.dt),
+            "--fast-substeps",
+            str(args.fast_substeps),
+            "--summary-json",
+            str(summary_path),
+            "--plan-view-json",
+            str(plan_view_path),
+            "--plan-view-level",
+            str(args.plan_view_level),
+        ],
+        env,
+    )
+
+    map_manifest_path: Path | None = None
+    if args.render_maps:
+        map_output_dir = (
+            Path(args.map_output_dir).resolve()
+            if args.map_output_dir
+            else output_dir / "plan_view_maps"
+        )
+        run_command(
+            [
+                sys.executable,
+                str(REPO_ROOT / "tools" / "verify" / "render_plan_view_maps.py"),
+                "--input",
+                str(plan_view_path),
+                "--output-dir",
+                str(map_output_dir),
+            ],
+            env,
+        )
+        manifest_in_map_dir = map_output_dir / "map_manifest.json"
+        if manifest_in_map_dir.exists():
+            map_manifest_path = output_dir / "map_manifest.json"
+            shutil.copyfile(manifest_in_map_dir, map_manifest_path)
+        else:
+            map_manifest_path = None
+
+    if not args.skip_verify:
+        run_command(
+            [
+                sys.executable,
+                str(REPO_ROOT / "tools" / "verify" / "run_verification.py"),
+                "--input",
+                str(output_dir),
+                "--kind",
+                "source_run_bundle",
+            ],
+            env,
+        )
+        for artifact in (prepared_case_path, summary_path, plan_view_path):
+            run_command(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "tools" / "verify" / "run_verification.py"),
+                    "--input",
+                    str(artifact),
+                ],
+                env,
+            )
+        if map_manifest_path is not None:
+            run_command(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "tools" / "verify" / "run_verification.py"),
+                    "--input",
+                    str(map_manifest_path),
+                ],
+                env,
+            )
+        run_command(
+            [
+                sys.executable,
+                str(REPO_ROOT / "tools" / "verify" / "run_verification.py"),
+                "--input",
+                str(output_dir),
+                "--kind",
+                "source_run_bundle",
+            ],
+            env,
+        )
+
+    print(f"Prepared-case run complete: {prepared_case_path}")
+    print(f"- summary: {summary_path}")
+    print(f"- plan_view: {plan_view_path}")
+    if map_manifest_path is not None:
+        print(f"- map_manifest: {map_manifest_path}")
+
+
+if __name__ == "__main__":
+    main()

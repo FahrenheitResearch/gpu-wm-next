@@ -24,6 +24,9 @@
 *.plan_view.verification.json
 /cases/idealized/*_maps/
 /cases/idealized/*.plan_view_maps/
+/cases/prepared/
+__pycache__/
+*.pyc
 Testing/
 compile_commands.json
 ctest-log.txt

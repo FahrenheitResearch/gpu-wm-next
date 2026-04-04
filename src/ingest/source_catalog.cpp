@@ -1,5 +1,7 @@
 #include "gwm/ingest/source_catalog.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <stdexcept>
 
 namespace gwm::ingest {
@@ -20,6 +22,33 @@ std::string to_string(SourceKind kind) {
       return "ECMWF";
   }
   throw std::runtime_error("Unknown SourceKind");
+}
+
+SourceKind source_kind_from_string(const std::string& value) {
+  std::string normalized = value;
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                 [](unsigned char ch) {
+                   return static_cast<char>(std::toupper(ch));
+                 });
+  if (normalized == "HRRR") {
+    return SourceKind::HRRR;
+  }
+  if (normalized == "RRFS") {
+    return SourceKind::RRFS;
+  }
+  if (normalized == "RAP") {
+    return SourceKind::RAP;
+  }
+  if (normalized == "GFS") {
+    return SourceKind::GFS;
+  }
+  if (normalized == "ERA5") {
+    return SourceKind::ERA5;
+  }
+  if (normalized == "ECMWF") {
+    return SourceKind::ECMWF;
+  }
+  throw std::runtime_error("Unknown source string: " + value);
 }
 
 bool is_first_class_source(SourceKind kind) {

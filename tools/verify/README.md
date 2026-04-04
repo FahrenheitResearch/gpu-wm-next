@@ -14,12 +14,21 @@ Current entry points:
 `run_verification.py` now understands:
 
 - `prepared_case_manifest.json`
+- populated `analysis_state.json`
+- populated `boundary_cache.json`
 - `boundary_cache_stub.json`
 - `checkpoint_stub.json`
 - `product_plan.json`
 - plan-view JSON from `gwm_idealized_driver`
 - `map_manifest.json`
 - idealized driver summary JSON from `run_idealized_case.py`
+- source-run bundle directories containing:
+  - `prepared_case_manifest.json`
+  - `analysis_state.json`
+  - `boundary_cache.json`
+  - optional `summary.json`
+  - optional `plan_view.json`
+  - optional `map_manifest.json`
 
 Each verification run emits a concrete report JSON next to the input by default.
 
@@ -32,6 +41,8 @@ Prepared-case side:
 - monotonic boundary offsets
 - referenced artifact existence
 - external toolchain availability summary
+- populated analysis/boundary artifact checks
+- source-run bundle checks for prepared-case directories
 
 Idealized side:
 
@@ -66,11 +77,25 @@ python tools/verify/run_verification.py `
   --input cases/idealized/warm_bubble.plan_view_maps/map_manifest.json
 ```
 
+Verify a prepared-case/source-run bundle directory:
+
+```powershell
+python tools/verify/run_verification.py `
+  --input cases/prepared/<populated-case-directory> `
+  --kind source_run_bundle
+```
+
 Render plan-view maps directly:
 
 ```powershell
 python tools/verify/render_plan_view_maps.py `
   --input cases/idealized/warm_bubble.plan_view.json
+```
+
+Smoke-test the source-run verification path:
+
+```powershell
+python tools/verify/test_source_run_bundle.py
 ```
 
 ## External Tooling Boundary

@@ -36,12 +36,16 @@ add_library(
   src/comm/mpi_runtime.cpp
   src/domain/idealized_domain_builder.cpp
   src/dycore/dry_core.cu
+  src/dycore/boundary_conditions.cpp
   src/dycore/dry_diagnostics.cpp
   src/dycore/dry_fast_modes.cu
   src/dycore/dry_momentum_flux.cu
   src/dycore/dry_pressure_gradient.cu
   src/dycore/idealized_cases.cpp
   src/dycore/dry_transport.cu
+  src/ingest/json_value.cpp
+  src/ingest/prepared_case_init.cpp
+  src/ingest/runtime_case.cpp
   src/ingest/source_catalog.cpp
   src/io/plan_view_output.cpp
   src/obsops/screen_obsops.cpp
@@ -49,7 +53,7 @@ add_library(
   src/surface/surface_layer_exchange.cpp
 )
 
-target_include_directories(gwm_core PUBLIC include)
+target_include_directories(gwm_core PUBLIC include third_party)
 target_compile_features(gwm_core PUBLIC cxx_std_20 cuda_std_20)
 target_link_libraries(gwm_core PUBLIC CUDA::cudart)
 set_target_properties(gwm_core PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
@@ -86,13 +90,19 @@ add_executable(gwm_idealized_driver src/core/gwm_idealized_driver.cpp)
 target_link_libraries(gwm_idealized_driver PRIVATE gwm_core CUDA::cudart)
 target_compile_features(gwm_idealized_driver PRIVATE cxx_std_20 cuda_std_20)
 
+add_executable(gwm_prepared_case_driver src/core/gwm_prepared_case_driver.cpp)
+target_link_libraries(gwm_prepared_case_driver PRIVATE gwm_core CUDA::cudart)
+target_compile_features(gwm_prepared_case_driver PRIVATE cxx_std_20 cuda_std_20)
+
 gwm_add_test(test_tracer_registry tests/unit/test_tracer_registry.cpp)
 gwm_add_test(test_halo_exchange tests/unit/test_halo_exchange.cpp)
 gwm_add_test(test_face_halo_exchange tests/unit/test_face_halo_exchange.cpp)
 gwm_add_test(test_scalar_halo_buffers tests/unit/test_scalar_halo_buffers.cpp)
+gwm_add_test(test_boundary_conditions tests/unit/test_boundary_conditions.cpp)
 gwm_add_test(test_mpi_runtime tests/unit/test_mpi_runtime.cpp)
 gwm_add_test(test_source_catalog tests/unit/test_source_catalog.cpp)
 gwm_add_test(test_ingest_contracts tests/unit/test_ingest_contracts.cpp)
+gwm_add_test(test_runtime_case tests/unit/test_runtime_case.cpp)
 gwm_add_test(test_plan_view_output tests/unit/test_plan_view_output.cpp)
 gwm_add_test(test_dry_diagnostics tests/unit/test_dry_diagnostics.cpp)
 gwm_add_test(test_dry_fast_modes tests/unit/test_dry_fast_modes.cpp)

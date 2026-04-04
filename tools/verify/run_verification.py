@@ -62,18 +62,360 @@ def verify_prepared_case_manifest(path: Path, payload: dict[str, Any]) -> dict[s
             "detail": toolchain.get("manifest_path", ""),
         },
     ]
+    populated_artifact_keys = [
+        name for name in ("analysis_state", "boundary_cache") if name in artifacts
+    ]
+    linked_reports: list[dict[str, Any]] = []
+    if populated_artifact_keys:
+        checks.append(
+            {
+                "name": "populated_artifact_pair_present",
+                "passed": populated_artifact_keys == ["analysis_state", "boundary_cache"],
+                "detail": populated_artifact_keys,
+            }
+        )
+        for artifact_key, verifier in (
+            ("analysis_state", verify_analysis_state_payload),
+            ("boundary_cache", verify_boundary_cache_payload),
+        ):
+            artifact_path = artifacts.get(artifact_key)
+            if artifact_path and Path(artifact_path).exists():
+                linked_reports.append(
+                    verifier(Path(artifact_path), load_json(Path(artifact_path)))
+                )
+        checks.append(
+            {
+                "name": "linked_runtime_artifacts_valid",
+                "passed": all(report["overall_passed"] for report in linked_reports),
+                "detail": [
+                    {
+                        "kind": report["input_kind"],
+                        "overall_passed": report["overall_passed"],
+                    }
+                    for report in linked_reports
+                ],
+            }
+        )
     tool_records = toolchain.get("tools", [])
     return {
         "input_kind": "prepared_case_manifest",
         "input_path": str(path.resolve()),
         "checked_at_utc": utc_now(),
         "checks": checks,
+        "linked_reports": linked_reports,
         "available_external_tools": [
             record["name"] for record in tool_records if record.get("exists")
         ],
         "missing_external_tools": [
             record["name"] for record in tool_records if not record.get("exists")
         ],
+        "overall_passed": all(check["passed"] for check in checks),
+    }
+
+
+def _required_field_group_checks(
+    values: dict[str, list[Any]],
+    expected_size: int,
+    groups: list[tuple[str, ...]],
+    label: str,
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    for group in groups:
+        present = [name for name in group if name in values]
+        sizes = {name: len(values[name]) for name in present}
+        passed = bool(present) and all(size == expected_size for size in sizes.values())
+        checks.append(
+            {
+                "name": f"{label}_{'_or_'.join(group)}",
+                "passed": passed,
+                "detail": {
+                    "required_any_of": list(group),
+                    "present": present,
+                    "expected_size": expected_size,
+                    "sizes": sizes,
+                },
+            }
+        )
+    return checks
+
+
+def verify_analysis_state_payload(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    grid = payload.get("grid", {})
+    metadata = payload.get("metadata", {})
+    atmosphere = payload.get("atmosphere", {})
+    surface = payload.get("surface", {})
+    static_surface = payload.get("static_surface", {})
+    expected_3d = int(grid.get("nx", 0)) * int(grid.get("ny", 0)) * int(grid.get("nz", 0))
+    expected_2d = int(grid.get("nx", 0)) * int(grid.get("ny", 0))
+    checks = [
+        {
+            "name": "schema_version",
+            "passed": payload.get("schema_version") == "gwm-next-analysis-state/v1",
+            "detail": payload.get("schema_version", ""),
+        },
+        {
+            "name": "population_status",
+            "passed": metadata.get("status") == "populated",
+            "detail": metadata.get("status", ""),
+        },
+        {
+            "name": "grid_shape_positive",
+            "passed": int(grid.get("nx", 0)) > 0
+            and int(grid.get("ny", 0)) > 0
+            and int(grid.get("nz", 0)) > 0
+            and float(grid.get("z_top", 0.0)) > 0.0,
+            "detail": grid,
+        },
+        {
+            "name": "source_present",
+            "passed": bool(payload.get("source")),
+            "detail": payload.get("source", ""),
+        },
+        {
+            "name": "target_window_present",
+            "passed": bool(metadata.get("target_window")),
+            "detail": metadata.get("target_window", {}),
+        },
+    ]
+    checks.extend(
+        _required_field_group_checks(
+            atmosphere,
+            expected_3d,
+            [
+                ("u_wind",),
+                ("v_wind",),
+                ("w_wind",),
+                ("air_temperature",),
+                ("air_pressure",),
+                ("geopotential_height",),
+                ("specific_humidity", "water_vapor_mixing_ratio"),
+            ],
+            "atmosphere",
+        )
+    )
+    checks.extend(
+        _required_field_group_checks(
+            surface,
+            expected_2d,
+            [
+                ("surface_pressure",),
+                ("air_temperature_2m",),
+                ("specific_humidity_2m",),
+                ("u_wind_10m",),
+                ("v_wind_10m",),
+                ("skin_temperature",),
+            ],
+            "surface",
+        )
+    )
+    checks.extend(
+        _required_field_group_checks(
+            static_surface,
+            expected_2d,
+            [("terrain_height",), ("land_mask",), ("land_use_index",)],
+            "static_surface",
+        )
+    )
+    return {
+        "input_kind": "analysis_state",
+        "input_path": str(path.resolve()),
+        "checked_at_utc": utc_now(),
+        "checks": checks,
+        "field_counts": {
+            "atmosphere": len(atmosphere),
+            "surface": len(surface),
+            "static_surface": len(static_surface),
+        },
+        "overall_passed": all(check["passed"] for check in checks),
+    }
+
+
+def verify_boundary_cache_payload(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    grid = payload.get("grid", {})
+    metadata = payload.get("metadata", {})
+    snapshots = payload.get("snapshots", [])
+    expected_3d = int(grid.get("nx", 0)) * int(grid.get("ny", 0)) * int(grid.get("nz", 0))
+    expected_2d = int(grid.get("nx", 0)) * int(grid.get("ny", 0))
+    offsets = [snapshot.get("forecast_offset_seconds") for snapshot in snapshots]
+    checks = [
+        {
+            "name": "schema_version",
+            "passed": payload.get("schema_version") == "gwm-next-boundary-cache/v1",
+            "detail": payload.get("schema_version", ""),
+        },
+        {
+            "name": "population_status",
+            "passed": metadata.get("status") == "populated",
+            "detail": metadata.get("status", ""),
+        },
+        {
+            "name": "grid_shape_positive",
+            "passed": int(grid.get("nx", 0)) > 0
+            and int(grid.get("ny", 0)) > 0
+            and int(grid.get("nz", 0)) > 0,
+            "detail": grid,
+        },
+        {
+            "name": "boundary_interval_positive",
+            "passed": int(payload.get("boundary_interval_seconds", 0)) > 0,
+            "detail": payload.get("boundary_interval_seconds", 0),
+        },
+        {
+            "name": "source_present",
+            "passed": bool(payload.get("source")),
+            "detail": payload.get("source", ""),
+        },
+        {
+            "name": "target_window_present",
+            "passed": bool(metadata.get("target_window")),
+            "detail": metadata.get("target_window", {}),
+        },
+        {
+            "name": "snapshots_present",
+            "passed": len(snapshots) >= 2,
+            "detail": len(snapshots),
+        },
+        {
+            "name": "offsets_monotonic",
+            "passed": all(isinstance(offset, int) for offset in offsets) and monotonic_offsets(offsets),
+            "detail": offsets,
+        },
+    ]
+    for snapshot_index, snapshot in enumerate(snapshots):
+        atmosphere = snapshot.get("atmosphere", {})
+        surface = snapshot.get("surface", {})
+        checks.extend(
+            _required_field_group_checks(
+                atmosphere,
+                expected_3d,
+                [
+                    ("u_wind",),
+                    ("v_wind",),
+                    ("w_wind",),
+                    ("air_temperature",),
+                    ("air_pressure",),
+                    ("geopotential_height",),
+                    ("specific_humidity", "water_vapor_mixing_ratio"),
+                ],
+                f"snapshot_{snapshot_index}_atmosphere",
+            )
+        )
+        checks.extend(
+            _required_field_group_checks(
+                surface,
+                expected_2d,
+                [
+                    ("surface_pressure",),
+                    ("air_temperature_2m",),
+                    ("specific_humidity_2m",),
+                    ("u_wind_10m",),
+                    ("v_wind_10m",),
+                    ("skin_temperature",),
+                ],
+                f"snapshot_{snapshot_index}_surface",
+            )
+        )
+        checks.append(
+            {
+                "name": f"snapshot_{snapshot_index}_valid_time_present",
+                "passed": bool(snapshot.get("valid_time_utc")),
+                "detail": snapshot.get("valid_time_utc", ""),
+            }
+        )
+    return {
+        "input_kind": "boundary_cache",
+        "input_path": str(path.resolve()),
+        "checked_at_utc": utc_now(),
+        "checks": checks,
+        "snapshot_count": len(snapshots),
+        "overall_passed": all(check["passed"] for check in checks),
+    }
+
+
+def verify_source_run_bundle(path: Path) -> dict[str, Any]:
+    members = {child.name: child for child in path.iterdir() if child.is_file()}
+    child_reports: list[dict[str, Any]] = []
+
+    required_members = [
+        "prepared_case_manifest.json",
+        "analysis_state.json",
+        "boundary_cache.json",
+    ]
+    optional_members = ["summary.json", "plan_view.json", "map_manifest.json"]
+
+    checks = [
+        {
+            "name": "bundle_is_directory",
+            "passed": path.is_dir(),
+            "detail": str(path.resolve()),
+        },
+        {
+            "name": "required_members_present",
+            "passed": all(member in members for member in required_members),
+            "detail": {member: (member in members) for member in required_members},
+        },
+    ]
+
+    if "prepared_case_manifest.json" in members:
+        report = verify_prepared_case_manifest(
+            members["prepared_case_manifest.json"],
+            load_json(members["prepared_case_manifest.json"]),
+        )
+        child_reports.append(report)
+    if "analysis_state.json" in members:
+        report = verify_analysis_state_payload(
+            members["analysis_state.json"], load_json(members["analysis_state.json"])
+        )
+        child_reports.append(report)
+    if "boundary_cache.json" in members:
+        report = verify_boundary_cache_payload(
+            members["boundary_cache.json"], load_json(members["boundary_cache.json"])
+        )
+        child_reports.append(report)
+    if "summary.json" in members:
+        report = verify_idealized_summary(
+            members["summary.json"], load_json(members["summary.json"])
+        )
+        child_reports.append(report)
+    if "plan_view.json" in members:
+        report = verify_plan_view_bundle(
+            members["plan_view.json"], load_json(members["plan_view.json"])
+        )
+        child_reports.append(report)
+    if "map_manifest.json" in members:
+        report = verify_map_manifest(
+            members["map_manifest.json"], load_json(members["map_manifest.json"])
+        )
+        child_reports.append(report)
+
+    checks.extend(
+        [
+            {
+                "name": "optional_members_tracked",
+                "passed": True,
+                "detail": {member: (member in members) for member in optional_members},
+            },
+            {
+                "name": "child_reports_passed",
+                "passed": all(report["overall_passed"] for report in child_reports),
+                "detail": [
+                    {
+                        "kind": report["input_kind"],
+                        "overall_passed": report["overall_passed"],
+                    }
+                    for report in child_reports
+                ],
+            },
+        ]
+    )
+
+    return {
+        "input_kind": "source_run_bundle",
+        "input_path": str(path.resolve()),
+        "checked_at_utc": utc_now(),
+        "checks": checks,
+        "bundle_members": sorted(members),
+        "child_reports": child_reports,
         "overall_passed": all(check["passed"] for check in checks),
     }
 
@@ -289,8 +631,13 @@ def detect_kind(payload: dict[str, Any]) -> str:
     schema_version = payload.get("schema_version")
     if schema_version == "gwm-next-prepared-case/v1":
         return "prepared_case_manifest"
+    if schema_version == "gwm-next-analysis-state/v1":
+        return "analysis_state"
     if schema_version == "gwm-next-boundary-cache/v1":
-        return "boundary_cache_stub"
+        metadata = payload.get("metadata", {})
+        if metadata.get("status") == "stub":
+            return "boundary_cache_stub"
+        return "boundary_cache"
     if schema_version == "gwm-next-checkpoint-stub/v1":
         return "checkpoint_stub"
     if schema_version == "gwm-next-product-plan/v1":
@@ -306,51 +653,71 @@ def detect_kind(payload: dict[str, Any]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Verify prepared-case manifests, checkpoint stubs, and idealized summary products."
+        description=(
+            "Verify prepared-case manifests, populated analysis/boundary artifacts, "
+            "source-run bundles, checkpoint stubs, and idealized summary products."
+        )
     )
-    parser.add_argument("--input", required=True, help="JSON artifact path to verify")
+    parser.add_argument(
+        "--input",
+        required=True,
+        help="JSON artifact path or prepared/source-run bundle directory to verify",
+    )
     parser.add_argument(
         "--kind",
         default="auto",
         choices=[
             "auto",
             "prepared_case_manifest",
+            "analysis_state",
+            "boundary_cache",
             "boundary_cache_stub",
             "checkpoint_stub",
             "product_plan",
             "plan_view_bundle",
             "map_manifest",
             "idealized_summary",
+            "source_run_bundle",
         ],
     )
     parser.add_argument("--output-json", default=None, help="Optional explicit report path")
     args = parser.parse_args()
 
     input_path = Path(args.input)
-    payload = load_json(input_path)
-    kind = detect_kind(payload) if args.kind == "auto" else args.kind
+    if input_path.is_dir():
+        kind = "source_run_bundle" if args.kind == "auto" else args.kind
+        if kind != "source_run_bundle":
+            raise ValueError("Directory inputs only support kind=auto or source_run_bundle")
+        report = verify_source_run_bundle(input_path)
+    else:
+        payload = load_json(input_path)
+        kind = detect_kind(payload) if args.kind == "auto" else args.kind
 
-    if kind == "prepared_case_manifest":
-        report = verify_prepared_case_manifest(input_path, payload)
-    elif kind == "boundary_cache_stub":
-        report = verify_boundary_cache_stub(input_path, payload)
-    elif kind == "checkpoint_stub":
-        report = verify_checkpoint_stub(input_path, payload)
-    elif kind == "product_plan":
-        report = verify_product_plan(input_path, payload)
-    elif kind == "plan_view_bundle":
-        report = verify_plan_view_bundle(input_path, payload)
-    elif kind == "map_manifest":
-        report = verify_map_manifest(input_path, payload)
-    elif kind == "idealized_summary":
-        report = verify_idealized_summary(input_path, payload)
-    else:  # pragma: no cover
-        raise ValueError(f"Unsupported verification kind: {kind}")
+        if kind == "prepared_case_manifest":
+            report = verify_prepared_case_manifest(input_path, payload)
+        elif kind == "analysis_state":
+            report = verify_analysis_state_payload(input_path, payload)
+        elif kind == "boundary_cache":
+            report = verify_boundary_cache_payload(input_path, payload)
+        elif kind == "boundary_cache_stub":
+            report = verify_boundary_cache_stub(input_path, payload)
+        elif kind == "checkpoint_stub":
+            report = verify_checkpoint_stub(input_path, payload)
+        elif kind == "product_plan":
+            report = verify_product_plan(input_path, payload)
+        elif kind == "plan_view_bundle":
+            report = verify_plan_view_bundle(input_path, payload)
+        elif kind == "map_manifest":
+            report = verify_map_manifest(input_path, payload)
+        elif kind == "idealized_summary":
+            report = verify_idealized_summary(input_path, payload)
+        else:  # pragma: no cover
+            raise ValueError(f"Unsupported verification kind: {kind}")
 
     output_path = (
         Path(args.output_json)
         if args.output_json is not None
-        else input_path.with_suffix(".verification.json")
+        else (input_path / "verification.json" if input_path.is_dir() else input_path.with_suffix(".verification.json"))
     )
     output_path.write_text(json.dumps(report, indent=2, sort_keys=False) + "\n", encoding="utf-8")
 

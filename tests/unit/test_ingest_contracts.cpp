@@ -24,8 +24,12 @@ int main() {
   analysis.atmosphere.values["w_wind"] = std::vector<real>(analysis.grid.cell_count_3d(), 0.1f);
   analysis.atmosphere.values["air_temperature"] =
       std::vector<real>(analysis.grid.cell_count_3d(), 300.0f);
-  analysis.atmosphere.values["water_vapor_mixing_ratio"] =
+  analysis.atmosphere.values["air_pressure"] =
+      std::vector<real>(analysis.grid.cell_count_3d(), 80000.0f);
+  analysis.atmosphere.values["specific_humidity"] =
       std::vector<real>(analysis.grid.cell_count_3d(), 0.01f);
+  analysis.atmosphere.values["geopotential_height"] =
+      std::vector<real>(analysis.grid.cell_count_3d(), 1500.0f);
   analysis.surface.values["surface_pressure"] =
       std::vector<real>(analysis.grid.cell_count_2d(), 95000.0f);
   analysis.surface.values["air_temperature_2m"] =
@@ -70,8 +74,12 @@ int main() {
   t0.atmosphere.values["w_wind"] = std::vector<real>(analysis.grid.cell_count_3d(), 0.1f);
   t0.atmosphere.values["air_temperature"] =
       std::vector<real>(analysis.grid.cell_count_3d(), 300.0f);
-  t0.atmosphere.values["water_vapor_mixing_ratio"] =
+  t0.atmosphere.values["air_pressure"] =
+      std::vector<real>(analysis.grid.cell_count_3d(), 80000.0f);
+  t0.atmosphere.values["specific_humidity"] =
       std::vector<real>(analysis.grid.cell_count_3d(), 0.01f);
+  t0.atmosphere.values["geopotential_height"] =
+      std::vector<real>(analysis.grid.cell_count_3d(), 1500.0f);
   t0.surface.values["surface_pressure"] =
       std::vector<real>(analysis.grid.cell_count_2d(), 95000.0f);
   t0.surface.values["air_temperature_2m"] =

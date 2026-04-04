@@ -40,11 +40,13 @@ SOURCE_CONTRACTS: dict[str, SourceContract] = {
         boundary_interval_seconds=3600,
         first_class=True,
         atmosphere=(
-            FieldBinding("U", "u_wind"),
-            FieldBinding("V", "v_wind"),
-            FieldBinding("W", "w_wind"),
+            FieldBinding("UGRD", "u_wind"),
+            FieldBinding("VGRD", "v_wind"),
+            FieldBinding("VVEL", "w_wind"),
             FieldBinding("T", "air_temperature"),
-            FieldBinding("QVAPOR", "water_vapor_mixing_ratio"),
+            FieldBinding("SPFH", "specific_humidity"),
+            FieldBinding("PRES", "air_pressure"),
+            FieldBinding("HGT", "geopotential_height"),
         ),
         surface=(
             FieldBinding("PSFC", "surface_pressure"),
@@ -71,6 +73,8 @@ SOURCE_CONTRACTS: dict[str, SourceContract] = {
             FieldBinding("DZDT", "w_wind"),
             FieldBinding("TMP", "air_temperature"),
             FieldBinding("SPFH", "specific_humidity"),
+            FieldBinding("PRES", "air_pressure"),
+            FieldBinding("HGT", "geopotential_height"),
         ),
         surface=(
             FieldBinding("PRES", "surface_pressure"),
@@ -114,7 +118,11 @@ def format_utc(value: datetime) -> str:
 
 
 def default_cycle_time() -> str:
-    now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    # Use a conservative lag so the default prepared case targets a cycle that
+    # is more likely to have finished indexing on remote object storage.
+    now = (datetime.now(UTC) - timedelta(hours=2)).replace(
+        minute=0, second=0, microsecond=0
+    )
     return format_utc(now)
 
 
@@ -153,6 +161,16 @@ def build_offsets(interval_seconds: int, forecast_hours: int) -> list[int]:
             seen.add(offset)
             ordered.append(offset)
     return ordered
+
+
+def parse_pressure_levels(text: str) -> list[int]:
+    parts = [part.strip() for part in text.split(",") if part.strip()]
+    if not parts:
+        raise ValueError("pressure-levels-hpa must not be empty")
+    levels = [int(part) for part in parts]
+    if any(level <= 0 for level in levels):
+        raise ValueError("pressure levels must be positive hPa values")
+    return levels
 
 
 def make_tool_records(tool_manifest: dict[str, Any]) -> list[dict[str, Any]]:
@@ -226,6 +244,13 @@ def main() -> None:
     parser.add_argument("--dx", type=float, default=3000.0)
     parser.add_argument("--dy", type=float, default=3000.0)
     parser.add_argument("--z-top", type=float, default=20000.0)
+    parser.add_argument("--center-lat", type=float, default=None)
+    parser.add_argument("--center-lon", type=float, default=None)
+    parser.add_argument(
+        "--pressure-levels-hpa",
+        default="1000,925,850,700,500",
+        help="Comma-separated pressure levels for populated source-side atmospheres",
+    )
     args = parser.parse_args()
 
     contract = SOURCE_CONTRACTS.get(args.source)
@@ -258,6 +283,11 @@ def main() -> None:
         "dy": args.dy,
         "z_top": args.z_top,
     }
+    target_window = {
+        "center_lat": args.center_lat,
+        "center_lon": args.center_lon,
+        "pressure_levels_hpa": parse_pressure_levels(args.pressure_levels_hpa),
+    }
     times = {
         "cycle_time_utc": format_utc(cycle_time),
         "analysis_valid_time_utc": format_utc(cycle_time),
@@ -276,6 +306,7 @@ def main() -> None:
             "prepared_at_utc": utc_now(),
             "status": "stub",
             "note": "Populate field values through external decode tooling before runtime ingest.",
+            "target_window": target_window,
         },
         "field_groups": {
             "atmosphere": {
@@ -325,6 +356,7 @@ def main() -> None:
             "domain_name": args.domain_name,
             "prepared_at_utc": utc_now(),
             "status": "stub",
+            "target_window": target_window,
         },
         "snapshots": boundary_snapshots,
     }
@@ -368,6 +400,7 @@ def main() -> None:
             "boundary_interval_seconds": contract.boundary_interval_seconds,
         },
         "grid": grid,
+        "target_window": target_window,
         "times": times,
         "contracts": {
             "analysis_state": {

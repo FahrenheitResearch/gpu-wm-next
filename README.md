@@ -65,6 +65,13 @@ Current implementation status:
   - dry diagnostics summary helpers for mass/theta/momentum/extrema
   - native idealized driver executable (`gwm_idealized_driver`)
   - Python casebuilder wrapper for idealized YAML case files
+  - prepared-case/source-driven runtime bridge for populated
+    `analysis_state.json` and `boundary_cache.json` artifacts
+  - prepared-case runtime driver executable (`gwm_prepared_case_driver`)
+  - Python source-run wrapper for prepared-case manifests
+  - first actual-data smoke path from HRRR into rendered plan-view map products
+  - source-run bundle verification for populated analysis, boundary, summary,
+    plan-view, and map-manifest JSON artifacts
 - external-tooling boundary is now codified for:
   - `cfrust`
   - `ecrust`
@@ -80,9 +87,17 @@ Windows note:
 
 Current checkpoint:
 
-- The local dry-core suite passes with the terrain-aware fast/slow path in
-  place.
-- The active bounded runtime-core milestone is real MPI-backed halo exchange
-  against the existing virtual-rank oracle.
-- Scope and proof obligations for that milestone live in
-  [docs/math/mpi_halo_exchange.md](docs/math/mpi_halo_exchange.md).
+- The local non-MPI suite passes with the terrain-aware fast/slow dry core and
+  prepared-case runtime path in place.
+- Real MPI-backed halo exchange is implemented source-side and covered by the
+  comm-layer proof/docs; execution of the MPI tests is still pending a machine
+  with `mpiexec`.
+- The repo now has two working map paths:
+  - idealized dry cases through `gwm_idealized_driver`
+  - populated prepared/source-driven runs through `gwm_prepared_case_driver`
+
+Source-driven smoke example:
+
+- `python tools/casebuilder/prepare_case.py --source hrrr --domain-name actual_data_smoke --cycle-time-utc 2026-04-04T00:00:00Z --forecast-hours 1 --nx 24 --ny 24 --center-lat 39.0 --center-lon -97.0 --pressure-levels-hpa 1000,850,700`
+- `python tools/casebuilder/run_prepared_case.py --prepared-case cases/prepared/actual_data_smoke_hrrr/prepared_case_manifest.json --populate --steps 1 --dt 2.0 --fast-substeps 2 --plan-view-level 1 --render-maps`
+- `python tools/verify/run_verification.py --input cases/prepared/actual_data_smoke_hrrr --kind source_run_bundle`

@@ -50,13 +50,12 @@
 - horizontal-pressure-response regression for centered thermal perturbations
 - dry diagnostics summary helpers
 - native idealized dry driver plus casebuilder wrapper for idealized YAML cases
-- next:
-  - real MPI-backed halo exchange path against the existing virtual-rank oracle
-  - keep `comm/*` as the only MPI/backend-aware runtime layer
-  - use `docs/math/mpi_halo_exchange.md` as the bounded proof/scope note for
-    the transport milestone
-  - keep surface/land spine and ingest/boundary-cache work gated behind the
-    current milestone decision
+- real MPI-backed halo exchange path against the existing virtual-rank oracle
+- `comm/*` remains the only MPI/backend-aware runtime layer
+- `docs/math/mpi_halo_exchange.md` is the proof/scope note for the transport
+  milestone
+- MPI source path is implemented locally; real `mpiexec` execution is still
+  pending an MPI-enabled machine
 
 ## stage2_moist
 
@@ -77,9 +76,18 @@
 - canonical ingest/runtime schema for analysis state and time-indexed boundary
   cache metadata
 - casebuilder target-area workflow
+- populated prepared-case/runtime bridge for `analysis_state.json` and
+  `boundary_cache.json`
+- native prepared-case runtime driver plus Python wrapper:
+  - `gwm_prepared_case_driver`
+  - `run_prepared_case.py`
+- source-run bundle verification for summary / plan-view / map-manifest JSON
 - first model-to-map bridge:
   - plan-view dry-state field output from `gwm_idealized_driver`
   - rendered image products plus `map_manifest.json`
+- first actual-data model-to-map bridge:
+  - populated HRRR prepared-case smoke
+  - source-driven summary / plan-view / rendered map outputs
 - severe-weather diagnostics/product set
 - restart/rerun loop
 

@@ -58,6 +58,12 @@ real source decode is wired:
   - `product_plan.json`
 - verification consumes those artifacts plus the current idealized dry summary
   JSON written by `gwm_idealized_driver`
+- populated prepared-case runs additionally produce:
+  - `analysis_state.json`
+  - `boundary_cache.json`
+  - optional source-run summary / plan-view / map-manifest JSON artifacts
+- `tools/verify/` validates both the stub manifest path and the populated
+  source-run bundle path
 
 That keeps the runtime core clean while still making the surrounding
 source-to-product path concrete enough to integrate against.

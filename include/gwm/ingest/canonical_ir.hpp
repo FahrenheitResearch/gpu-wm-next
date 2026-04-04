@@ -18,6 +18,7 @@ struct HorizontalGridIR {
   int nz = 0;
   double dx = 0.0;
   double dy = 0.0;
+  double z_top = 0.0;
   double ref_lat = 0.0;
   double ref_lon = 0.0;
   double truelat1 = 0.0;
@@ -112,11 +113,13 @@ class HrrrAdapter final : public SourceAdapter {
   [[nodiscard]] std::string name() const override { return "HRRR"; }
   [[nodiscard]] std::vector<SourceFieldBinding> atmosphere_field_bindings()
       const override {
-    return {{"U", "u_wind"},
-            {"V", "v_wind"},
-            {"W", "w_wind"},
+    return {{"UGRD", "u_wind"},
+            {"VGRD", "v_wind"},
+            {"VVEL", "w_wind"},
             {"T", "air_temperature"},
-            {"QVAPOR", "water_vapor_mixing_ratio"}};
+            {"SPFH", "specific_humidity"},
+            {"PRES", "air_pressure"},
+            {"HGT", "geopotential_height"}};
   }
 
   [[nodiscard]] std::vector<SourceFieldBinding> surface_field_bindings()
@@ -151,7 +154,9 @@ class RrfsAdapter final : public SourceAdapter {
             {"VGRD", "v_wind"},
             {"DZDT", "w_wind"},
             {"TMP", "air_temperature"},
-            {"SPFH", "specific_humidity"}};
+            {"SPFH", "specific_humidity"},
+            {"PRES", "air_pressure"},
+            {"HGT", "geopotential_height"}};
   }
 
   [[nodiscard]] std::vector<SourceFieldBinding> surface_field_bindings()
