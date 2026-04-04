@@ -46,6 +46,8 @@ At the current checkpoint:
 - runtime summary sidecars expose:
   - vapor, cloud, rain, condensed, and total water masses
   - accumulated/mean/max surface precipitation metrics
+  - total surface cell count, precipitating cell count/fraction, and wet-cell
+    mean accumulated precipitation
   - per-tracer total mass
   - per-tracer mixing-ratio min/max
 - prepared/source-run summaries remain JSON-first artifacts, not restart truth
@@ -59,6 +61,9 @@ At the current checkpoint:
 - no direct surface, PBL, or radiation coupling in the same patch
 - source-run verification still treats the summary sidecar as a proof/report
   artifact rather than a restart contract
+- bundle verification cross-checks the final summary fallout metrics against the
+  emitted runtime plan-view accumulation/rate products when those artifacts are
+  present
 
 ## Test mapping
 
@@ -67,3 +72,4 @@ At the current checkpoint:
 - `tests/unit/test_runtime_summary.cpp`
 - `tests/regression/test_warm_rain_summary_closure.cpp`
 - `tools/verify/test_source_run_bundle.py`
+- `tools/verify/run_verification.py`

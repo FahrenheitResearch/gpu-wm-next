@@ -121,6 +121,35 @@ RuntimeStateSummary summarize_runtime_state(
         warm_rain_summary.mean_surface_precipitation_mm;
     summary.moisture.max_surface_precipitation_mm =
         warm_rain_summary.max_surface_precipitation_mm;
+    double precipitating_sum_mm = 0.0;
+    int total_surface_cell_count = 0;
+    int precipitating_surface_cell_count = 0;
+    for (const auto& accumulation : *accumulations) {
+      for (int j = 0; j < accumulation.ny; ++j) {
+        for (int i = 0; i < accumulation.nx; ++i) {
+          ++total_surface_cell_count;
+          const double value = static_cast<double>(
+              accumulation.liquid_precipitation_kg_m2(i, j, 0));
+          if (value > 0.0) {
+            ++precipitating_surface_cell_count;
+            precipitating_sum_mm += value;
+          }
+        }
+      }
+    }
+    summary.moisture.total_surface_cell_count = total_surface_cell_count;
+    summary.moisture.precipitating_surface_cell_count =
+        precipitating_surface_cell_count;
+    if (total_surface_cell_count > 0) {
+      summary.moisture.precipitating_surface_fraction =
+          static_cast<double>(precipitating_surface_cell_count) /
+          static_cast<double>(total_surface_cell_count);
+    }
+    if (precipitating_surface_cell_count > 0) {
+      summary.moisture.mean_precipitating_surface_precipitation_mm =
+          precipitating_sum_mm /
+          static_cast<double>(precipitating_surface_cell_count);
+    }
   }
 
   return summary;
@@ -165,7 +194,15 @@ std::string runtime_state_summary_to_json(const RuntimeStateSummary& summary,
   oss << indent << "  \"mean_surface_precipitation_mm\": "
       << summary.moisture.mean_surface_precipitation_mm << ",\n";
   oss << indent << "  \"max_surface_precipitation_mm\": "
-      << summary.moisture.max_surface_precipitation_mm << "\n";
+      << summary.moisture.max_surface_precipitation_mm << ",\n";
+  oss << indent << "  \"total_surface_cell_count\": "
+      << summary.moisture.total_surface_cell_count << ",\n";
+  oss << indent << "  \"precipitating_surface_cell_count\": "
+      << summary.moisture.precipitating_surface_cell_count << ",\n";
+  oss << indent << "  \"precipitating_surface_fraction\": "
+      << summary.moisture.precipitating_surface_fraction << ",\n";
+  oss << indent << "  \"mean_precipitating_surface_precipitation_mm\": "
+      << summary.moisture.mean_precipitating_surface_precipitation_mm << "\n";
   oss << indent << "},\n";
   oss << indent << "\"tracers\": {\n";
   for (std::size_t idx = 0; idx < summary.tracers.size(); ++idx) {

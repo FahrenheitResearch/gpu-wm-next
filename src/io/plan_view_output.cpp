@@ -50,6 +50,10 @@ std::vector<double> derive_column_total_condensate_map(
     const std::vector<double>& column_cloud_water,
     const std::vector<double>& column_rain_water);
 
+std::vector<double> derive_column_rain_fraction_map(
+    const std::vector<double>& column_total_condensate,
+    const std::vector<double>& column_rain_water);
+
 std::vector<double> derive_synthetic_reflectivity_map(
     const std::vector<dycore::DryState>& states,
     const std::vector<state::TracerState>& tracers,
@@ -291,7 +295,7 @@ std::vector<double> derive_column_tracer_map(
     const domain::GridMetrics& metrics, const std::string& tracer_name) {
   gwm::require(states.size() == tracers.size() &&
                    states.size() == layout.size(),
-               "State/tracer/layout mismatch in column rain-water derivation");
+               "State/tracer/layout mismatch in column tracer derivation");
   std::vector<std::vector<double>> maps(
       states.size(),
       std::vector<double>(static_cast<std::size_t>(metrics.nx) *
@@ -344,6 +348,23 @@ std::vector<double> derive_column_total_condensate_map(
     total[idx] = column_cloud_water[idx] + column_rain_water[idx];
   }
   return total;
+}
+
+std::vector<double> derive_column_rain_fraction_map(
+    const std::vector<double>& column_total_condensate,
+    const std::vector<double>& column_rain_water) {
+  gwm::require(column_total_condensate.size() == column_rain_water.size(),
+               "Column condensate/rain size mismatch in rain-fraction derivation");
+  std::vector<double> fraction(column_total_condensate.size(), 0.0);
+  for (std::size_t idx = 0; idx < fraction.size(); ++idx) {
+    const double total = std::max(column_total_condensate[idx], 0.0);
+    if (total <= 0.0) {
+      continue;
+    }
+    fraction[idx] =
+        std::clamp(column_rain_water[idx] / total, 0.0, 1.0);
+  }
+  return fraction;
 }
 
 std::vector<double> derive_synthetic_reflectivity_map(
@@ -750,6 +771,8 @@ PlanViewBundle extract_runtime_plan_view(
         states, tracers, layout, metrics);
     const auto column_total_condensate =
         derive_column_total_condensate_map(column_cloud, column_rain);
+    const auto column_rain_fraction = derive_column_rain_fraction_map(
+        column_total_condensate, column_rain);
     const auto reflectivity = derive_synthetic_reflectivity_map(
         states, tracers, layout, metrics);
 
@@ -775,6 +798,10 @@ PlanViewBundle extract_runtime_plan_view(
                                               "kg m^-2", metrics.nx,
                                               metrics.ny,
                                               std::move(column_total_condensate)));
+    set_or_append_field(bundle,
+                        make_flat_slice_field("column_rain_fraction", "1",
+                                              metrics.nx, metrics.ny,
+                                              std::move(column_rain_fraction)));
     set_or_append_field(bundle,
                         make_flat_slice_field("synthetic_reflectivity", "dBZ",
                                               metrics.nx, metrics.ny,

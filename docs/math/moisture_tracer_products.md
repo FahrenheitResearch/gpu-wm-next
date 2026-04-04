@@ -31,7 +31,10 @@ are:
   - `cloud_water_mixing_ratio`
   - `rain_water_mixing_ratio`
   - `total_condensate`
+  - `column_cloud_water`
   - `column_rain_water`
+  - `column_total_condensate`
+  - `column_rain_fraction`
   - `accumulated_surface_precipitation`
   - `mean_surface_precipitation_rate`
 - derived diagnostics:
@@ -54,7 +57,14 @@ The runtime/product contract for this milestone is:
    storage semantics as current dry fields
 5. warm-rain plan-view products are derived from runtime tracer masses, not
    clobbered by prepared-case enrichment sidecars
-6. the prepared-case summary sidecar reports tracer totals plus total/condensed
+6. column warm-rain products are computed as `sum_k(rho_d q_x Delta z)` using
+   the runtime hybrid-height metrics already carried by the dycore
+7. `column_rain_fraction` is diagnosed as
+   `column_rain_water / column_total_condensate` with a zero-condensate guard
+8. accumulated surface precipitation is read from the warm-rain accumulation
+   sidecar and mean surface precipitation rate is diagnosed as
+   `accumulated_surface_precipitation / elapsed_time`
+9. the prepared-case summary sidecar reports tracer totals plus total/condensed
    water masses for milestone-proof closure
 
 ## Invariants / admissibility
@@ -66,6 +76,14 @@ The runtime/product contract for this milestone is:
   - `specific_humidity`
   - `cloud_water_mixing_ratio`
   - `rain_water_mixing_ratio`
+- warm-rain plan-view hydrometeor products use explicit names rather than
+  overloaded aliases:
+  - slice fields: `cloud_water_mixing_ratio`, `rain_water_mixing_ratio`,
+    `total_condensate`
+  - column fields: `column_cloud_water`, `column_rain_water`,
+    `column_total_condensate`, `column_rain_fraction`
+  - surface fallout fields: `accumulated_surface_precipitation`,
+    `mean_surface_precipitation_rate`
 - moist plan-view fields must satisfy `len(values) == nx * ny`
 - moist diagnostic outputs must remain finite for admissible thermodynamic
   inputs
@@ -95,6 +113,7 @@ The runtime/product contract for this milestone is:
 - `tests/unit/test_tracer_registry.cpp`
 - `tests/unit/test_warm_rain_microphysics.cpp`
 - `tests/unit/test_runtime_summary.cpp`
+- `tests/unit/test_plan_view_output.cpp`
 - `tests/regression/test_warm_rain_closed_box.cpp`
 - `tests/regression/test_warm_rain_summary_closure.cpp`
 - `tests/unit/test_surface_obsops.cpp`

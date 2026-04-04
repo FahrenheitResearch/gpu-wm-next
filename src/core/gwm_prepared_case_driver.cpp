@@ -123,6 +123,9 @@ std::string prepared_summary_json(
     const gwm::surface::SurfaceRuntimeInitResult& surface_runtime,
     const gwm::core::RuntimeStateSummary& initial,
     const gwm::core::RuntimeStateSummary& final) {
+  const double elapsed_seconds =
+      static_cast<double>(steps) * static_cast<double>(dt);
+  const double elapsed_hours = elapsed_seconds / 3600.0;
   std::ostringstream oss;
   oss << "{\n";
   oss << "  \"case\": \"prepared_case\",\n";
@@ -135,6 +138,8 @@ std::string prepared_summary_json(
   oss << "  \"steps\": " << steps << ",\n";
   oss << "  \"dt\": " << dt << ",\n";
   oss << "  \"fast_substeps\": " << fast_substeps << ",\n";
+  oss << "  \"elapsed_seconds\": " << elapsed_seconds << ",\n";
+  oss << "  \"elapsed_hours\": " << elapsed_hours << ",\n";
   oss << "  \"grid\": {\n";
   oss << "    \"nx\": " << runtime_case.analysis.grid.nx << ",\n";
   oss << "    \"ny\": " << runtime_case.analysis.grid.ny << ",\n";

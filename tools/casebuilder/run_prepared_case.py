@@ -28,6 +28,15 @@ def plan_view_field_names(path: Path) -> list[str]:
     ]
 
 
+def runtime_summary_moisture(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    payload = load_json(path)
+    final = payload.get("final", {})
+    moisture = final.get("moisture", {})
+    return moisture if isinstance(moisture, dict) else {}
+
+
 def find_driver_binary(explicit: str | None) -> Path:
     candidates: list[Path] = []
     if explicit:
@@ -162,7 +171,10 @@ def main() -> None:
             "cloud_water_mixing_ratio",
             "rain_water_mixing_ratio",
             "total_condensate",
+            "column_cloud_water",
             "column_rain_water",
+            "column_total_condensate",
+            "column_rain_fraction",
             "accumulated_surface_precipitation",
             "mean_surface_precipitation_rate",
             "synthetic_reflectivity",
@@ -234,6 +246,7 @@ def main() -> None:
                 env,
             )
 
+    final_moisture = runtime_summary_moisture(summary_path)
     print(f"Prepared-case run complete: {prepared_case_path}")
     print(f"- summary: {summary_path}")
     print(f"- plan_view: {plan_view_path}")
@@ -241,6 +254,15 @@ def main() -> None:
         print(f"- plan_view_fields: {', '.join(emitted_fields)}")
     if moist_fields:
         print(f"- moist_fields: {', '.join(moist_fields)}")
+    if final_moisture:
+        print(
+            "- final_moisture:"
+            f" vapor={final_moisture.get('vapor_water_mass', 0.0)}"
+            f" cloud={final_moisture.get('cloud_water_mass', 0.0)}"
+            f" rain={final_moisture.get('rain_water_mass', 0.0)}"
+            f" precip_sum_mm={final_moisture.get('accumulated_surface_precipitation_sum_mm', 0.0)}"
+            f" precip_max_mm={final_moisture.get('max_surface_precipitation_mm', 0.0)}"
+        )
     if map_manifest_path is not None:
         print(f"- map_manifest: {map_manifest_path}")
 

@@ -27,6 +27,10 @@ struct MoistureBudgetSummary {
   double accumulated_surface_precipitation_sum_mm = 0.0;
   double mean_surface_precipitation_mm = 0.0;
   double max_surface_precipitation_mm = 0.0;
+  int total_surface_cell_count = 0;
+  int precipitating_surface_cell_count = 0;
+  double precipitating_surface_fraction = 0.0;
+  double mean_precipitating_surface_precipitation_mm = 0.0;
 };
 
 struct RuntimeStateSummary {

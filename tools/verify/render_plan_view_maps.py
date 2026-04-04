@@ -159,6 +159,9 @@ def choose_field_style(field: dict[str, Any], rows: list[list[float]]) -> dict[s
             }
         )
         return style
+    if "column_rain_fraction" in name:
+        style.update({"cmap": "plasma", "vmin": 0.0, "vmax": 1.0})
+        return style
     if "column_cloud_water" in name:
         style.update(
             {
@@ -224,11 +227,14 @@ def reshape_field(field: dict[str, Any]) -> list[list[float]]:
 
 
 def render_with_matplotlib(
-    rows: list[list[float]], output_path: Path, title: str, field: dict[str, Any]
+    rows: list[list[float]],
+    output_path: Path,
+    title: str,
+    field: dict[str, Any],
+    style: dict[str, Any],
 ) -> str:
     import matplotlib.pyplot as plt  # type: ignore
 
-    style = choose_field_style(field, rows)
     fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
     image = ax.imshow(
         rows,
@@ -277,16 +283,23 @@ def render_field(
     rows = reshape_field(field)
     title = f"{title_prefix} {field['name']} [{field.get('units', '')}]".strip()
     stem = sanitize_stem(str(field["name"]))
+    style = choose_field_style(field, rows)
     if allow_matplotlib:
         try:
             output_path = output_dir / f"{stem}.png"
-            fmt = render_with_matplotlib(rows, output_path, title, field)
+            fmt = render_with_matplotlib(rows, output_path, title, field, style)
             return {
                 "field": field.get("name", stem),
                 "file_stem": stem,
                 "units": field.get("units", ""),
                 "path": str(output_path.resolve()),
                 "format": fmt,
+                "style": {
+                    "colormap": style["cmap"],
+                    "interpolation": style["interpolation"],
+                    "vmin": style["vmin"],
+                    "vmax": style["vmax"],
+                },
             }
         except ModuleNotFoundError:
             pass
@@ -299,6 +312,12 @@ def render_field(
         "units": field.get("units", ""),
         "path": str(output_path.resolve()),
         "format": fmt,
+        "style": {
+            "colormap": "fallback_ppm",
+            "interpolation": "bilinear_upsample",
+            "vmin": min(flattened_values(rows)) if rows else 0.0,
+            "vmax": max(flattened_values(rows)) if rows else 0.0,
+        },
     }
 
 

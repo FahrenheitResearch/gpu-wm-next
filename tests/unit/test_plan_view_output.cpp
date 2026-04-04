@@ -184,7 +184,7 @@ int main() {
     const auto warm_rain_bundle = io::extract_runtime_plan_view(
         states, warm_rain_tracers, layout, metrics, "warm_rain_runtime", 4,
         2.0f, 1, &accumulations);
-    TEST_CHECK(warm_rain_bundle.fields.size() == 20);
+    TEST_CHECK(warm_rain_bundle.fields.size() == 23);
     TEST_NEAR(require_field(warm_rain_bundle,
                             gwm::state::kCloudWaterTracerName)
                   .values.front(),
@@ -198,6 +198,18 @@ int main() {
               0.0015, 1.0e-6);
     TEST_CHECK(require_field(warm_rain_bundle, "column_rain_water")
                    .values.front() > 0.0);
+    TEST_NEAR(require_field(warm_rain_bundle, "column_cloud_water")
+                  .values.front(),
+              10.8, 1.0e-6);
+    TEST_NEAR(require_field(warm_rain_bundle, "column_rain_water")
+                  .values.front(),
+              5.4, 1.0e-6);
+    TEST_NEAR(require_field(warm_rain_bundle, "column_total_condensate")
+                  .values.front(),
+              16.2, 1.0e-6);
+    TEST_NEAR(require_field(warm_rain_bundle, "column_rain_fraction")
+                  .values.front(),
+              1.0 / 3.0, 1.0e-6);
     TEST_CHECK(require_field(warm_rain_bundle, "synthetic_reflectivity")
                    .values.front() <= 75.0);
     TEST_NEAR(require_field(warm_rain_bundle, "accumulated_surface_precipitation")

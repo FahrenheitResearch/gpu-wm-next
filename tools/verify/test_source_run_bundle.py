@@ -213,9 +213,27 @@ def main() -> None:
         }
 
         summary = {
-            "case": "source_run_smoke",
+            "case": "prepared_case",
+            "source": "HRRR",
+            "cycle_time_utc": "2026-04-04T00:00:00Z",
+            "analysis_valid_time_utc": "2026-04-04T00:00:00Z",
             "steps": 1,
             "dt": 2.0,
+            "fast_substeps": 2,
+            "elapsed_seconds": 2.0,
+            "elapsed_hours": 2.0 / 3600.0,
+            "grid": {
+                "nx": 2,
+                "ny": 2,
+                "nz": 2,
+                "dx": 3000.0,
+                "dy": 3000.0,
+                "z_top": 12000.0,
+            },
+            "surface_runtime": {
+                "ntile": 1,
+                "nsoil": 4,
+            },
             "initial": {
                 "total_dry_mass": 8.0,
                 "total_rho_theta_m": 2400.0,
@@ -228,6 +246,10 @@ def main() -> None:
                     "accumulated_surface_precipitation_sum_mm": 0.0,
                     "mean_surface_precipitation_mm": 0.0,
                     "max_surface_precipitation_mm": 0.0,
+                    "total_surface_cell_count": 4,
+                    "precipitating_surface_cell_count": 0,
+                    "precipitating_surface_fraction": 0.0,
+                    "mean_precipitating_surface_precipitation_mm": 0.0,
                 },
                 "tracers": {
                     "specific_humidity": {
@@ -263,6 +285,10 @@ def main() -> None:
                     "accumulated_surface_precipitation_sum_mm": 0.002,
                     "mean_surface_precipitation_mm": 0.0005,
                     "max_surface_precipitation_mm": 0.001,
+                    "total_surface_cell_count": 4,
+                    "precipitating_surface_cell_count": 2,
+                    "precipitating_surface_fraction": 0.5,
+                    "mean_precipitating_surface_precipitation_mm": 0.001,
                 },
                 "tracers": {
                     "specific_humidity": {
@@ -366,6 +392,15 @@ def main() -> None:
                     "values": [0.0001, 0.0003, 0.0002, 0.0002],
                 },
                 {
+                    "name": "column_cloud_water",
+                    "units": "kg m^-2",
+                    "location": "cell_center",
+                    "nx": 2,
+                    "ny": 2,
+                    "storage": "row_major_yx",
+                    "values": [0.2, 0.3, 0.1, 0.2],
+                },
+                {
                     "name": "column_rain_water",
                     "units": "kg m^-2",
                     "location": "cell_center",
@@ -373,6 +408,24 @@ def main() -> None:
                     "ny": 2,
                     "storage": "row_major_yx",
                     "values": [0.0, 0.2, 0.4, 0.3],
+                },
+                {
+                    "name": "column_total_condensate",
+                    "units": "kg m^-2",
+                    "location": "cell_center",
+                    "nx": 2,
+                    "ny": 2,
+                    "storage": "row_major_yx",
+                    "values": [0.2, 0.5, 0.5, 0.5],
+                },
+                {
+                    "name": "column_rain_fraction",
+                    "units": "1",
+                    "location": "cell_center",
+                    "nx": 2,
+                    "ny": 2,
+                    "storage": "row_major_yx",
+                    "values": [0.0, 0.4, 0.8, 0.6],
                 },
                 {
                     "name": "synthetic_reflectivity",

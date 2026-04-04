@@ -18,8 +18,8 @@ The bridge is:
    `boundary_cache.json`.
 4. The runtime emits summary, plan-view, and map-manifest JSON artifacts.
 5. The prepared-case summary sidecar now reports dry totals together with
-   warm-rain tracer totals, moisture-budget sidecars, and accumulated
-   precipitation closure.
+   warm-rain tracer totals, moisture-budget sidecars, accumulated
+   precipitation closure, and fallout-aware wet-cell diagnostics.
 6. When a populated companion `analysis_state.json` is present, the current
    plan-view writer may enrich the source-driven bundle with moisture
    diagnostics such as `specific_humidity`, `relative_humidity`, and
@@ -52,6 +52,15 @@ the contract can be checked before population.
 - prepared-case/source-run bundle directories
 - plan-view and map-manifest outputs
 
+For source-driven warm-rain bundles, verification now also cross-checks:
+
+- runtime-summary tracer totals against the moisture sidecar totals
+- final accumulated/mean/max surface precipitation against the emitted
+  `accumulated_surface_precipitation` plan-view field
+- mean surface precipitation rate against the emitted
+  `mean_surface_precipitation_rate` field and elapsed runtime
+- presence of the warm-rain runtime product family when rain water is present
+
 This keeps source-driven orchestration outside the timestepper while still
 making the handoff concrete enough to test.
 
@@ -66,6 +75,8 @@ making the handoff concrete enough to test.
   of full precip realism
 - accumulated precipitation is still a bounded first-cut diagnostic, not a full
   surface hydrology or operational QPF contract
+- runtime summaries are proof/report artifacts and now include wet-cell
+  precipitation occupancy/fraction metrics in addition to domain-mean fallout
 
 ## Test Mapping
 

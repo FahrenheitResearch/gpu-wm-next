@@ -64,6 +64,36 @@ def numeric_leaf_paths(value: Any, prefix: str = "") -> list[tuple[str, float]]:
     return leaves
 
 
+def summary_tracer_total(summary_payload: dict[str, Any], name: str) -> float | None:
+    tracers = summary_payload.get("tracers", {})
+    if not isinstance(tracers, dict):
+        return None
+    tracer_payload = tracers.get(name, {})
+    if not isinstance(tracer_payload, dict):
+        return None
+    total_mass = tracer_payload.get("total_mass")
+    return float(total_mass) if is_finite_number(total_mass) else None
+
+
+def summarize_plan_view_field(payload: dict[str, Any], field_name: str) -> dict[str, float] | None:
+    for field in payload.get("fields", []):
+        if str(field.get("name", "")) != field_name:
+            continue
+        values = field.get("values", [])
+        if not all_finite(values):
+            return None
+        numeric_values = [float(value) for value in values]
+        if not numeric_values:
+            return {"sum": 0.0, "mean": 0.0, "max": 0.0}
+        total = float(sum(numeric_values))
+        return {
+            "sum": total,
+            "mean": total / float(len(numeric_values)),
+            "max": max(numeric_values),
+        }
+    return None
+
+
 def all_finite(values: list[Any]) -> bool:
     return all(is_finite_number(value) for value in values)
 
@@ -407,6 +437,9 @@ def verify_boundary_cache_payload(path: Path, payload: dict[str, Any]) -> dict[s
 def verify_source_run_bundle(path: Path) -> dict[str, Any]:
     members = list_bundle_files(path)
     child_reports: list[dict[str, Any]] = []
+    summary_payload: dict[str, Any] | None = None
+    summary_kind: str | None = None
+    plan_view_payload: dict[str, Any] | None = None
 
     required_members = [
         "prepared_case_manifest.json",
@@ -449,15 +482,17 @@ def verify_source_run_bundle(path: Path) -> dict[str, Any]:
         child_reports.append(report)
     summary_relpath, summary_path = optional_members["summary"]
     if summary_path is not None:
-        report = verify_idealized_summary(
-            summary_path, load_json(summary_path)
-        )
+        summary_payload = load_json(summary_path)
+        summary_kind = detect_kind(summary_payload)
+        if summary_kind == "runtime_summary":
+            report = verify_runtime_summary(summary_path, summary_payload)
+        else:
+            report = verify_idealized_summary(summary_path, summary_payload)
         child_reports.append(report)
     plan_view_relpath, plan_view_path = optional_members["plan_view"]
     if plan_view_path is not None:
-        report = verify_plan_view_bundle(
-            plan_view_path, load_json(plan_view_path)
-        )
+        plan_view_payload = load_json(plan_view_path)
+        report = verify_plan_view_bundle(plan_view_path, plan_view_payload)
         child_reports.append(report)
     map_manifest_relpath, map_manifest_path = optional_members["map_manifest"]
     if map_manifest_path is not None:
@@ -468,8 +503,7 @@ def verify_source_run_bundle(path: Path) -> dict[str, Any]:
 
     rendered_field_consistency = True
     rendered_field_detail: dict[str, Any] = {"rendered": [], "plan_view_fields": []}
-    if plan_view_path is not None and map_manifest_path is not None:
-        plan_view_payload = load_json(plan_view_path)
+    if plan_view_path is not None and map_manifest_path is not None and plan_view_payload is not None:
         map_manifest_payload = load_json(map_manifest_path)
         plan_view_fields = {
             str(field.get("name", ""))
@@ -488,6 +522,98 @@ def verify_source_run_bundle(path: Path) -> dict[str, Any]:
             "plan_view_path": plan_view_relpath,
             "map_manifest_path": map_manifest_relpath,
         }
+
+    summary_plan_view_consistent = True
+    summary_plan_view_detail: dict[str, Any] = {}
+    if summary_payload is not None and plan_view_payload is not None:
+        if summary_kind == "runtime_summary":
+            final_moisture = summary_payload.get("final", {}).get("moisture", {})
+            accumulated_field = summarize_plan_view_field(
+                plan_view_payload, "accumulated_surface_precipitation"
+            )
+            rate_field = summarize_plan_view_field(
+                plan_view_payload, "mean_surface_precipitation_rate"
+            )
+            plan_view_fields = {
+                str(field.get("name", ""))
+                for field in plan_view_payload.get("fields", [])
+                if field.get("name")
+            }
+            elapsed_hours = float(summary_payload.get("elapsed_hours", 0.0))
+            if elapsed_hours <= 0.0:
+                elapsed_hours = (
+                    float(summary_payload.get("steps", 0))
+                    * float(summary_payload.get("dt", 0.0))
+                ) / 3600.0
+            summary_plan_view_consistent = (
+                isinstance(final_moisture, dict) and accumulated_field is not None
+            )
+            if summary_plan_view_consistent and isinstance(final_moisture, dict):
+                summary_plan_view_consistent = (
+                    abs(
+                        accumulated_field["sum"]
+                        - float(
+                            final_moisture.get(
+                                "accumulated_surface_precipitation_sum_mm", 0.0
+                            )
+                        )
+                    )
+                    <= 1.0e-6
+                    and abs(
+                        accumulated_field["mean"]
+                        - float(
+                            final_moisture.get(
+                                "mean_surface_precipitation_mm", 0.0
+                            )
+                        )
+                    )
+                    <= 1.0e-6
+                    and abs(
+                        accumulated_field["max"]
+                        - float(
+                            final_moisture.get(
+                                "max_surface_precipitation_mm", 0.0
+                            )
+                        )
+                    )
+                    <= 1.0e-6
+                )
+                if rate_field is not None and elapsed_hours > 0.0:
+                    summary_plan_view_consistent = summary_plan_view_consistent and (
+                        abs(
+                            rate_field["mean"]
+                            - float(
+                                final_moisture.get(
+                                    "mean_surface_precipitation_mm", 0.0
+                                )
+                            )
+                            / elapsed_hours
+                        )
+                        <= 1.0e-6
+                    )
+                if float(final_moisture.get("rain_water_mass", 0.0)) > 0.0:
+                    summary_plan_view_consistent = summary_plan_view_consistent and all(
+                        field_name in plan_view_fields
+                        for field_name in (
+                            "cloud_water_mixing_ratio",
+                            "rain_water_mixing_ratio",
+                            "total_condensate",
+                            "column_cloud_water",
+                            "column_rain_water",
+                            "column_total_condensate",
+                            "column_rain_fraction",
+                            "synthetic_reflectivity",
+                            "accumulated_surface_precipitation",
+                            "mean_surface_precipitation_rate",
+                        )
+                    )
+            summary_plan_view_detail = {
+                "elapsed_hours": elapsed_hours,
+                "plan_view_fields": sorted(plan_view_fields),
+                "accumulated_surface_precipitation": accumulated_field,
+                "mean_surface_precipitation_rate": rate_field,
+                "final_moisture": final_moisture,
+            }
 
     checks.extend(
         [
@@ -515,6 +641,11 @@ def verify_source_run_bundle(path: Path) -> dict[str, Any]:
                 "name": "rendered_fields_match_plan_view",
                 "passed": rendered_field_consistency,
                 "detail": rendered_field_detail,
+            },
+            {
+                "name": "runtime_summary_matches_plan_view",
+                "passed": summary_plan_view_consistent,
+                "detail": summary_plan_view_detail,
             },
         ]
     )
@@ -761,6 +892,194 @@ def verify_plan_view_bundle(path: Path, payload: dict[str, Any]) -> dict[str, An
     }
 
 
+def verify_runtime_summary(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    initial = payload.get("initial", {})
+    final = payload.get("final", {})
+    initial_numeric_leaves = numeric_leaf_paths(initial, "initial")
+    final_numeric_leaves = numeric_leaf_paths(final, "final")
+    elapsed_seconds = payload.get("elapsed_seconds")
+    if not is_finite_number(elapsed_seconds):
+        elapsed_seconds = float(payload.get("steps", 0)) * float(payload.get("dt", 0.0))
+
+    moisture_fields = (
+        "vapor_water_mass",
+        "cloud_water_mass",
+        "rain_water_mass",
+        "condensed_water_mass",
+        "total_water_mass",
+        "accumulated_surface_precipitation_sum_mm",
+        "mean_surface_precipitation_mm",
+        "max_surface_precipitation_mm",
+        "total_surface_cell_count",
+        "precipitating_surface_cell_count",
+        "precipitating_surface_fraction",
+        "mean_precipitating_surface_precipitation_mm",
+    )
+    initial_moisture = initial.get("moisture", {})
+    final_moisture = final.get("moisture", {})
+    tracer_names = (
+        "specific_humidity",
+        "cloud_water_mixing_ratio",
+        "rain_water_mixing_ratio",
+    )
+
+    moisture_details: list[dict[str, Any]] = []
+    moisture_fields_present = True
+    tracer_consistency = True
+    for label, summary_payload in (("initial", initial), ("final", final)):
+        moisture = summary_payload.get("moisture", {})
+        moisture_fields_present = moisture_fields_present and isinstance(moisture, dict)
+        if isinstance(moisture, dict):
+            moisture_details.append(
+                {
+                    "label": label,
+                    "missing_fields": [
+                        field for field in moisture_fields if field not in moisture
+                    ],
+                }
+            )
+        else:
+            moisture_details.append({"label": label, "missing_fields": list(moisture_fields)})
+        tracer_qv = summary_tracer_total(summary_payload, "specific_humidity")
+        tracer_qc = summary_tracer_total(summary_payload, "cloud_water_mixing_ratio")
+        tracer_qr = summary_tracer_total(summary_payload, "rain_water_mixing_ratio")
+        if isinstance(moisture, dict):
+            if tracer_qv is not None and is_finite_number(moisture.get("vapor_water_mass")):
+                tracer_consistency = tracer_consistency and (
+                    abs(float(moisture["vapor_water_mass"]) - tracer_qv) <= 1.0e-6
+                )
+            if tracer_qc is not None and is_finite_number(moisture.get("cloud_water_mass")):
+                tracer_consistency = tracer_consistency and (
+                    abs(float(moisture["cloud_water_mass"]) - tracer_qc) <= 1.0e-6
+                )
+            if tracer_qr is not None and is_finite_number(moisture.get("rain_water_mass")):
+                tracer_consistency = tracer_consistency and (
+                    abs(float(moisture["rain_water_mass"]) - tracer_qr) <= 1.0e-6
+                )
+
+    precip_summary_consistent = False
+    precip_detail: dict[str, Any] = {}
+    if isinstance(final_moisture, dict) and all(
+        key in final_moisture for key in moisture_fields
+    ):
+        total_cells = int(final_moisture["total_surface_cell_count"])
+        precip_cells = int(final_moisture["precipitating_surface_cell_count"])
+        precip_sum = float(final_moisture["accumulated_surface_precipitation_sum_mm"])
+        mean_precip = float(final_moisture["mean_surface_precipitation_mm"])
+        max_precip = float(final_moisture["max_surface_precipitation_mm"])
+        precip_fraction = float(final_moisture["precipitating_surface_fraction"])
+        wet_mean_precip = float(
+            final_moisture["mean_precipitating_surface_precipitation_mm"]
+        )
+        precip_summary_consistent = (
+            total_cells >= 0
+            and 0 <= precip_cells <= total_cells
+            and precip_sum >= -1.0e-9
+            and mean_precip >= -1.0e-9
+            and max_precip >= -1.0e-9
+            and wet_mean_precip >= -1.0e-9
+            and abs(mean_precip * float(total_cells) - precip_sum) <= 1.0e-6
+            and (
+                total_cells == 0
+                or abs(precip_fraction - float(precip_cells) / float(total_cells))
+                <= 1.0e-6
+            )
+            and (
+                precip_cells == 0
+                or abs(wet_mean_precip * float(precip_cells) - precip_sum) <= 1.0e-6
+            )
+            and (precip_cells > 0 or abs(wet_mean_precip) <= 1.0e-9)
+            and max_precip + 1.0e-9 >= wet_mean_precip
+            and wet_mean_precip + 1.0e-9 >= mean_precip
+        )
+        precip_detail = {
+            "elapsed_seconds": elapsed_seconds,
+            "precip_sum_mm": precip_sum,
+            "mean_precip_mm": mean_precip,
+            "max_precip_mm": max_precip,
+            "total_cells": total_cells,
+            "precipitating_cells": precip_cells,
+            "precipitating_fraction": precip_fraction,
+            "wet_mean_precip_mm": wet_mean_precip,
+        }
+
+    accumulated_monotonic = False
+    if isinstance(initial_moisture, dict) and isinstance(final_moisture, dict):
+        if is_finite_number(initial_moisture.get("accumulated_surface_precipitation_sum_mm")) and is_finite_number(
+            final_moisture.get("accumulated_surface_precipitation_sum_mm")
+        ):
+            accumulated_monotonic = (
+                float(final_moisture["accumulated_surface_precipitation_sum_mm"])
+                + 1.0e-9
+                >= float(initial_moisture["accumulated_surface_precipitation_sum_mm"])
+            )
+
+    checks = [
+        {
+            "name": "runtime_summary_shape",
+            "passed": all(
+                key in payload
+                for key in (
+                    "case",
+                    "source",
+                    "cycle_time_utc",
+                    "analysis_valid_time_utc",
+                    "steps",
+                    "dt",
+                    "fast_substeps",
+                    "grid",
+                    "surface_runtime",
+                    "initial",
+                    "final",
+                )
+            ),
+            "detail": sorted(payload.keys()),
+        },
+        {
+            "name": "initial_numeric_leaves_finite",
+            "passed": all(math.isfinite(value) for _, value in initial_numeric_leaves),
+            "detail": [leaf_path for leaf_path, _ in initial_numeric_leaves],
+        },
+        {
+            "name": "final_numeric_leaves_finite",
+            "passed": all(math.isfinite(value) for _, value in final_numeric_leaves),
+            "detail": [leaf_path for leaf_path, _ in final_numeric_leaves],
+        },
+        {
+            "name": "moisture_fields_present",
+            "passed": moisture_fields_present
+            and all(not detail["missing_fields"] for detail in moisture_details),
+            "detail": moisture_details,
+        },
+        {
+            "name": "tracer_moisture_consistent",
+            "passed": tracer_consistency,
+            "detail": {"checked_tracers": list(tracer_names)},
+        },
+        {
+            "name": "precipitation_summary_consistent",
+            "passed": precip_summary_consistent,
+            "detail": precip_detail,
+        },
+        {
+            "name": "accumulated_precipitation_monotonic",
+            "passed": accumulated_monotonic,
+            "detail": {
+                "initial": initial_moisture.get("accumulated_surface_precipitation_sum_mm"),
+                "final": final_moisture.get("accumulated_surface_precipitation_sum_mm"),
+            },
+        },
+    ]
+
+    return {
+        "input_kind": "runtime_summary",
+        "input_path": str(path.resolve()),
+        "checked_at_utc": utc_now(),
+        "checks": checks,
+        "overall_passed": all(check["passed"] for check in checks),
+    }
+
+
 def verify_idealized_summary(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     initial = payload.get("initial", {})
     final = payload.get("final", {})
@@ -849,6 +1168,17 @@ def detect_kind(payload: dict[str, Any]) -> str:
     if schema_version == "gwm-next-map-manifest/v1":
         return "map_manifest"
     if all(key in payload for key in ("case", "initial", "final")):
+        if all(
+            key in payload
+            for key in (
+                "source",
+                "cycle_time_utc",
+                "analysis_valid_time_utc",
+                "grid",
+                "surface_runtime",
+            )
+        ):
+            return "runtime_summary"
         return "idealized_summary"
     raise ValueError("Unable to detect input kind from JSON payload")
 
@@ -878,6 +1208,7 @@ def main() -> None:
             "product_plan",
             "plan_view_bundle",
             "map_manifest",
+            "runtime_summary",
             "idealized_summary",
             "source_run_bundle",
         ],
@@ -911,6 +1242,8 @@ def main() -> None:
             report = verify_plan_view_bundle(input_path, payload)
         elif kind == "map_manifest":
             report = verify_map_manifest(input_path, payload)
+        elif kind == "runtime_summary":
+            report = verify_runtime_summary(input_path, payload)
         elif kind == "idealized_summary":
             report = verify_idealized_summary(input_path, payload)
         else:  # pragma: no cover
@@ -930,6 +1263,8 @@ def main() -> None:
     for check in report["checks"]:
         status = "PASS" if check["passed"] else "FAIL"
         print(f"- [{status}] {check['name']}")
+    if not report["overall_passed"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
