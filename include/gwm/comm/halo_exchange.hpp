@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "gwm/comm/cartesian_topology.hpp"
+#include "gwm/comm/mpi_runtime.hpp"
 
 #include "gwm/domain/subdomain_descriptor.hpp"
 #include "gwm/state/face_field.hpp"
@@ -45,12 +46,20 @@ class HaloExchange {
   static void exchange_scalar(std::vector<state::Field3D<real>>& fields,
                               const std::vector<domain::SubdomainDescriptor>& layout);
 
+  static void exchange_scalar(state::Field3D<real>& field,
+                              const domain::SubdomainDescriptor& desc,
+                              const MpiCartesianContext& context);
+
   static void exchange_face(std::vector<state::FaceField<real>>& fields,
                             const std::vector<domain::SubdomainDescriptor>& layout);
 
   static void exchange_face(
       const std::vector<state::FaceField<real>*>& fields,
       const std::vector<domain::SubdomainDescriptor>& layout);
+
+  static void exchange_face(state::FaceField<real>& field,
+                            const domain::SubdomainDescriptor& desc,
+                            const MpiCartesianContext& context);
 
   static void synchronize_owned_face_interfaces(
       std::vector<state::FaceField<real>>& fields,
@@ -59,6 +68,10 @@ class HaloExchange {
   static void synchronize_owned_face_interfaces(
       const std::vector<state::FaceField<real>*>& fields,
       const std::vector<domain::SubdomainDescriptor>& layout);
+
+  static void synchronize_owned_face_interfaces(
+      state::FaceField<real>& field, const domain::SubdomainDescriptor& desc,
+      const MpiCartesianContext& context);
 };
 
 }  // namespace gwm::comm

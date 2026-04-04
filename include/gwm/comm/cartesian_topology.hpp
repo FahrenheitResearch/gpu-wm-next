@@ -14,6 +14,9 @@ struct CartesianNeighborRanks {
   int north = -1;
 };
 
+[[nodiscard]] const domain::SubdomainDescriptor* find_rank_descriptor(
+    const std::vector<domain::SubdomainDescriptor>& layout, int rank);
+
 [[nodiscard]] CartesianNeighborRanks find_cartesian_neighbors(
     const std::vector<domain::SubdomainDescriptor>& layout,
     const domain::SubdomainDescriptor& desc);
@@ -24,6 +27,10 @@ struct ScalarHaloExchangePlan {
   std::size_t x_face_count = 0;
   std::size_t y_face_count = 0;
 };
+
+[[nodiscard]] ScalarHaloExchangePlan make_scalar_halo_exchange_plan(
+    const domain::SubdomainDescriptor& desc,
+    const CartesianNeighborRanks& neighbors);
 
 [[nodiscard]] ScalarHaloExchangePlan make_scalar_halo_exchange_plan(
     const std::vector<domain::SubdomainDescriptor>& layout,

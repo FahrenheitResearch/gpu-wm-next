@@ -44,6 +44,16 @@ int rank_at(const std::vector<domain::SubdomainDescriptor>& layout, int coord_x,
 
 }  // namespace
 
+const domain::SubdomainDescriptor* find_rank_descriptor(
+    const std::vector<domain::SubdomainDescriptor>& layout, int rank) {
+  for (const auto& desc : layout) {
+    if (desc.rank == rank) {
+      return &desc;
+    }
+  }
+  return nullptr;
+}
+
 CartesianNeighborRanks find_cartesian_neighbors(
     const std::vector<domain::SubdomainDescriptor>& layout,
     const domain::SubdomainDescriptor& desc) {
@@ -66,11 +76,18 @@ CartesianNeighborRanks find_cartesian_neighbors(
 ScalarHaloExchangePlan make_scalar_halo_exchange_plan(
     const std::vector<domain::SubdomainDescriptor>& layout,
     const domain::SubdomainDescriptor& desc) {
+  return make_scalar_halo_exchange_plan(desc,
+                                        find_cartesian_neighbors(layout, desc));
+}
+
+ScalarHaloExchangePlan make_scalar_halo_exchange_plan(
+    const domain::SubdomainDescriptor& desc,
+    const CartesianNeighborRanks& neighbors) {
   gwm::require(desc.halo >= 0, "Halo width must be nonnegative");
 
   ScalarHaloExchangePlan plan{};
   plan.desc = desc;
-  plan.neighbors = find_cartesian_neighbors(layout, desc);
+  plan.neighbors = neighbors;
   plan.x_face_count = static_cast<std::size_t>(desc.halo) * desc.ny_local() *
                       desc.nz;
   plan.y_face_count = static_cast<std::size_t>(desc.halo) *
