@@ -51,6 +51,8 @@ struct DryStepperConfig {
   real dt = 2.0f;
   int fast_substeps = 1;
   real gravity = 9.81f;
+  bool fast_update_horizontal_momentum = true;
+  bool fast_update_density = true;
 };
 
 class BoundaryUpdater {

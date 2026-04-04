@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -30,8 +31,28 @@ struct PreparedCaseInitConfig {
 
 [[nodiscard]] std::vector<dycore::DryState> make_dry_states_from_analysis(
     const AnalysisStateIR& analysis,
+    const domain::GridMetrics& metrics,
     const std::vector<domain::SubdomainDescriptor>& layout,
     const std::string& label_prefix = "prepared_case");
+
+struct PreparedCaseBalanceDiagnostics {
+  real max_rel_eos = 0.0f;
+  real max_rel_hydrostatic = 0.0f;
+  real max_rel_fast_vertical = 0.0f;
+  real max_abs_mass_divergence = 0.0f;
+  real max_rel_mass_divergence = 0.0f;
+  real max_abs_mom_w_bottom = 0.0f;
+  real max_abs_mom_w_top = 0.0f;
+  real max_abs_tracer_closure = 0.0f;
+  std::optional<real> max_abs_z_src_minus_metric{};
+};
+
+[[nodiscard]] PreparedCaseBalanceDiagnostics
+diagnose_prepared_case_balance(
+    const AnalysisStateIR& analysis, const domain::GridMetrics& metrics,
+    const std::vector<dycore::DryState>& dry_states,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const std::vector<state::TracerState>* tracers = nullptr);
 
 [[nodiscard]] std::vector<state::TracerState>
 make_specific_humidity_tracers_from_analysis(
@@ -70,6 +91,7 @@ class PreparedCaseBoundaryUpdater final : public dycore::BoundaryUpdater {
   AnalysisStateIR analysis_;
   BoundaryCacheIR cache_;
   PreparedCaseInitConfig config_{};
+  domain::GridMetrics metrics_{};
   real step_start_time_seconds_ = 0.0f;
 };
 
@@ -90,6 +112,7 @@ class PreparedCaseTracerBoundaryUpdater final
   AnalysisStateIR analysis_;
   BoundaryCacheIR cache_;
   PreparedCaseInitConfig config_{};
+  domain::GridMetrics metrics_{};
   real step_start_time_seconds_ = 0.0f;
 };
 

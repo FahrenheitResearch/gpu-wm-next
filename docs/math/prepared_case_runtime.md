@@ -3,6 +3,26 @@
 This note captures the JSON contracts that bridge source data into runtime
 initialization and source-driven verification.
 
+## Balanced Startup Conversion
+
+Prepared-case dry-state initialization is not a raw source-field import.
+Instead, ingest projects the source atmosphere onto the runtime dry manifold:
+
+- compute source `theta` from source `air_pressure` and `air_temperature`
+- integrate each column hydrostatically on `GridMetrics::z_center(...)` using
+  the same four-iteration recurrence as the dry fast-mode reference builder
+- write `rho_d` and `rho_theta_m` from that projected pressure column
+- iteratively project the horizontal face momenta so the column-mean
+  continuity residual is driven near roundoff before rebuilding `mom_w`
+- build `mom_u` and `mom_v` from projected density plus face-interpolated
+  source `u_wind` / `v_wind`
+- initialize `mom_w` to a startup-consistent zero field with zero top/bottom
+  faces; do not trust imported `w_wind` as prognostic startup truth
+- rebuild tracer masses only after final projected `rho_d`
+
+Prepared-case boundary snapshots use the same balanced conversion before the
+ open-boundary strips are applied.
+
 ## Analysis-State Contract
 
 The populated analysis state is a canonical runtime input with:
@@ -105,6 +125,15 @@ with moisture diagnostics derived from the populated analysis humidity field.
   - dry totals/ranges
   - tracer totals/ranges
   - vapor/cloud/rain/condensed/total water masses
+- startup balance diagnostics:
+  - EOS residual against the balanced startup pressure column
+  - hydrostatic residual against the balanced projected pressure field
+  - fast-vertical residual from the perturbation state seen by the vertical
+    fast-mode branch
+  - mass-divergence residual from the startup face momenta
+  - top/bottom `mom_w` norms
+  - tracer closure
+  - optional source-height vs metric-height mismatch
 
 ## Assumptions for Stability / Consistency
 
@@ -118,11 +147,15 @@ with moisture diagnostics derived from the populated analysis humidity field.
   before full moist physics lands
 - populated metadata should record both the requested and actual source
   pressure-level stack used for remap
+- balanced startup diagnostics are proof obligations for prepared-case ingest
+  and must stay within the unit-test acceptance gates before longer real-data
+  runs are trusted
 
 ## Test Mapping
 
 - `tests/unit/test_runtime_case.cpp`
 - `tests/unit/test_ingest_contracts.cpp`
+- `tests/unit/test_prepared_case_init.cpp`
 - `tests/unit/test_tracer_registry.cpp`
 - `tests/unit/test_runtime_summary.cpp`
 - `tests/regression/test_warm_rain_summary_closure.cpp`

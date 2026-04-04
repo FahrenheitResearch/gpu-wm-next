@@ -83,6 +83,28 @@ __global__ void fill_reference_from_levels_kernel(
   pressure_ref_field[cell_idx] = pressure_ref_levels[k];
 }
 
+__global__ void compute_theta_field_kernel(const real* rho_d,
+                                           const real* rho_theta_m,
+                                           real* theta_field, int total_size) {
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= total_size) {
+    return;
+  }
+  theta_field[idx] =
+      gwm::core::dry_theta_from_conserved(rho_d[idx], rho_theta_m[idx]);
+}
+
+__global__ void rebuild_rho_theta_from_theta_kernel(const real* rho_d,
+                                                    const real* theta_field,
+                                                    real* rho_theta_m,
+                                                    int total_size) {
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= total_size) {
+    return;
+  }
+  rho_theta_m[idx] = rho_d[idx] * theta_field[idx];
+}
+
 __global__ void build_column_hydrostatic_reference_kernel(
     const real* rho_d, const real* rho_theta_m, const real* pressure,
     const real* z_centers_metric, real* rho_ref, real* pressure_ref,
@@ -381,26 +403,39 @@ void apply_local_split_explicit_fast_modes(
 
   const int substeps = std::max(1, config.fast_substeps);
   const real dt_fast = config.dt / static_cast<real>(substeps);
-  std::vector<state::Field3D<real>> rho_theta_halo;
+  std::vector<state::Field3D<real>> theta_halo;
+  std::vector<state::Field3D<real>> rho_theta_fast;
   std::vector<state::Field3D<real>> rho_halo;
   std::vector<state::Field3D<real>> pressure_fields;
   std::vector<state::Field3D<real>> rho_ref_fields;
   std::vector<state::Field3D<real>> pressure_ref_fields;
-  rho_theta_halo.reserve(states.size());
+  theta_halo.reserve(states.size());
+  rho_theta_fast.reserve(states.size());
   rho_halo.reserve(states.size());
   pressure_fields.reserve(states.size());
   rho_ref_fields.reserve(states.size());
   pressure_ref_fields.reserve(states.size());
   for (const auto& state : states) {
-    rho_theta_halo.push_back(state.rho_theta_m.clone_empty_like("_fast_theta"));
-    rho_theta_halo.back().copy_all_from(state.rho_theta_m);
+    theta_halo.push_back(state.rho_theta_m.clone_empty_like("_fast_theta"));
+    rho_theta_fast.push_back(
+        state.rho_theta_m.clone_empty_like("_fast_rho_theta"));
     rho_halo.push_back(state.rho_d.clone_empty_like("_fast_rho"));
     pressure_fields.push_back(state.rho_d.clone_empty_like("_fast_pressure"));
     rho_ref_fields.push_back(state.rho_d.clone_empty_like("_fast_rho_ref"));
     pressure_ref_fields.push_back(
         state.rho_d.clone_empty_like("_fast_pressure_ref"));
   }
-  comm::HaloExchange::exchange_scalar(rho_theta_halo, layout);
+  constexpr int scalar_block = 256;
+  for (std::size_t n = 0; n < states.size(); ++n) {
+    const int total = static_cast<int>(states[n].rho_d.total_size());
+    const int scalar_grid = (total + scalar_block - 1) / scalar_block;
+    compute_theta_field_kernel<<<scalar_grid, scalar_block>>>(
+        states[n].rho_d.data(), states[n].rho_theta_m.data(),
+        theta_halo[n].data(), total);
+    GWM_CUDA_CHECK(cudaGetLastError());
+  }
+  sync_after_launches();
+  comm::HaloExchange::exchange_scalar(theta_halo, layout);
 
   real* rho_ref_levels = nullptr;
   real* pressure_ref_levels = nullptr;
@@ -431,7 +466,16 @@ void apply_local_split_explicit_fast_modes(
       rho_halo[n].copy_all_from(states[n].rho_d);
     }
     comm::HaloExchange::exchange_scalar(rho_halo, layout);
-    compute_dry_pressure_fields(rho_halo, rho_theta_halo, pressure_fields);
+    for (std::size_t n = 0; n < states.size(); ++n) {
+      const int total = static_cast<int>(rho_halo[n].total_size());
+      const int scalar_grid = (total + scalar_block - 1) / scalar_block;
+      rebuild_rho_theta_from_theta_kernel<<<scalar_grid, scalar_block>>>(
+          rho_halo[n].data(), theta_halo[n].data(), rho_theta_fast[n].data(),
+          total);
+      GWM_CUDA_CHECK(cudaGetLastError());
+    }
+    sync_after_launches();
+    compute_dry_pressure_fields(rho_halo, rho_theta_fast, pressure_fields);
 
     if (!terrain_active) {
       GWM_CUDA_CHECK(cudaMemset(rho_ref_levels, 0, sizeof(real) * metrics.nz));
@@ -474,7 +518,7 @@ void apply_local_split_explicit_fast_modes(
         dim3 column_grid((states[n].rho_d.nx() + block.x - 1) / block.x,
                          (states[n].rho_d.ny() + block.y - 1) / block.y, 1);
         build_column_hydrostatic_reference_kernel<<<column_grid, dim3(block.x, block.y, 1)>>>(
-            rho_halo[n].data(), rho_theta_halo[n].data(),
+            rho_halo[n].data(), rho_theta_fast[n].data(),
             pressure_fields[n].data(), metrics.z_centers_metric.data(),
             rho_ref_fields[n].data(), pressure_ref_fields[n].data(),
             metrics.nx, metrics.ny, metrics.periodic_x, metrics.periodic_y,
@@ -493,31 +537,33 @@ void apply_local_split_explicit_fast_modes(
       }
       GWM_CUDA_CHECK(cudaGetLastError());
 
-      dim3 xgrid((states[n].rho_d.nx() + 1 + block.x - 1) / block.x,
-                 (states[n].rho_d.ny() + block.y - 1) / block.y,
-                 (states[n].rho_d.nz() + block.z - 1) / block.z);
-      update_fast_x_momentum_kernel<<<xgrid, block>>>(
-          pressure_fields[n].data(), metrics.z_centers_metric.data(),
-          states[n].mom_u.storage().data(), metrics.nx, metrics.ny,
-          metrics.periodic_x, metrics.periodic_y,
-          layout[n].i_begin, layout[n].j_begin, states[n].rho_d.nx(),
-          states[n].rho_d.ny(), states[n].rho_d.nz(), states[n].rho_d.halo(),
-          static_cast<real>(metrics.dx), dt_fast, neighbors.west < 0,
-          neighbors.east < 0);
-      GWM_CUDA_CHECK(cudaGetLastError());
+      if (config.fast_update_horizontal_momentum) {
+        dim3 xgrid((states[n].rho_d.nx() + 1 + block.x - 1) / block.x,
+                   (states[n].rho_d.ny() + block.y - 1) / block.y,
+                   (states[n].rho_d.nz() + block.z - 1) / block.z);
+        update_fast_x_momentum_kernel<<<xgrid, block>>>(
+            pressure_fields[n].data(), metrics.z_centers_metric.data(),
+            states[n].mom_u.storage().data(), metrics.nx, metrics.ny,
+            metrics.periodic_x, metrics.periodic_y,
+            layout[n].i_begin, layout[n].j_begin, states[n].rho_d.nx(),
+            states[n].rho_d.ny(), states[n].rho_d.nz(),
+            states[n].rho_d.halo(), static_cast<real>(metrics.dx), dt_fast,
+            neighbors.west < 0, neighbors.east < 0);
+        GWM_CUDA_CHECK(cudaGetLastError());
 
-      dim3 ygrid((states[n].rho_d.nx() + block.x - 1) / block.x,
-                 (states[n].rho_d.ny() + 1 + block.y - 1) / block.y,
-                 (states[n].rho_d.nz() + block.z - 1) / block.z);
-      update_fast_y_momentum_kernel<<<ygrid, block>>>(
-          pressure_fields[n].data(), metrics.z_centers_metric.data(),
-          states[n].mom_v.storage().data(), metrics.nx, metrics.ny,
-          metrics.periodic_x, metrics.periodic_y,
-          layout[n].i_begin, layout[n].j_begin, states[n].rho_d.nx(),
-          states[n].rho_d.ny(), states[n].rho_d.nz(), states[n].rho_d.halo(),
-          static_cast<real>(metrics.dy), dt_fast, neighbors.south < 0,
-          neighbors.north < 0);
-      GWM_CUDA_CHECK(cudaGetLastError());
+        dim3 ygrid((states[n].rho_d.nx() + block.x - 1) / block.x,
+                   (states[n].rho_d.ny() + 1 + block.y - 1) / block.y,
+                   (states[n].rho_d.nz() + block.z - 1) / block.z);
+        update_fast_y_momentum_kernel<<<ygrid, block>>>(
+            pressure_fields[n].data(), metrics.z_centers_metric.data(),
+            states[n].mom_v.storage().data(), metrics.nx, metrics.ny,
+            metrics.periodic_x, metrics.periodic_y,
+            layout[n].i_begin, layout[n].j_begin, states[n].rho_d.nx(),
+            states[n].rho_d.ny(), states[n].rho_d.nz(),
+            states[n].rho_d.halo(), static_cast<real>(metrics.dy), dt_fast,
+            neighbors.south < 0, neighbors.north < 0);
+        GWM_CUDA_CHECK(cudaGetLastError());
+      }
 
       dim3 zgrid((states[n].rho_d.nx() + block.x - 1) / block.x,
                  (states[n].rho_d.ny() + block.y - 1) / block.y,
@@ -546,15 +592,27 @@ void apply_local_split_explicit_fast_modes(
       dim3 cell_grid((states[n].rho_d.nx() + block.x - 1) / block.x,
                      (states[n].rho_d.ny() + block.y - 1) / block.y,
                      (states[n].rho_d.nz() + block.z - 1) / block.z);
-      update_density_from_divergence_kernel<<<cell_grid, block>>>(
-          states[n].rho_d.data(), states[n].mom_u.storage().data(),
-          states[n].mom_v.storage().data(), states[n].mom_w.storage().data(),
-          metrics.inv_dz_cell_metric.data(), metrics.nx, metrics.ny,
-          metrics.periodic_x, metrics.periodic_y, layout[n].i_begin,
-          layout[n].j_begin, states[n].rho_d.nx(), states[n].rho_d.ny(),
-          states[n].rho_d.nz(), states[n].rho_d.halo(),
-          static_cast<real>(metrics.dx), static_cast<real>(metrics.dy),
-          dt_fast);
+      if (config.fast_update_density) {
+        update_density_from_divergence_kernel<<<cell_grid, block>>>(
+            states[n].rho_d.data(), states[n].mom_u.storage().data(),
+            states[n].mom_v.storage().data(),
+            states[n].mom_w.storage().data(),
+            metrics.inv_dz_cell_metric.data(), metrics.nx, metrics.ny,
+            metrics.periodic_x, metrics.periodic_y, layout[n].i_begin,
+            layout[n].j_begin, states[n].rho_d.nx(), states[n].rho_d.ny(),
+            states[n].rho_d.nz(), states[n].rho_d.halo(),
+            static_cast<real>(metrics.dx), static_cast<real>(metrics.dy),
+            dt_fast);
+        GWM_CUDA_CHECK(cudaGetLastError());
+      }
+    }
+    sync_after_launches();
+    for (std::size_t n = 0; n < states.size(); ++n) {
+      const int total = static_cast<int>(states[n].rho_d.total_size());
+      const int scalar_grid = (total + scalar_block - 1) / scalar_block;
+      rebuild_rho_theta_from_theta_kernel<<<scalar_grid, scalar_block>>>(
+          states[n].rho_d.data(), theta_halo[n].data(),
+          states[n].rho_theta_m.data(), total);
       GWM_CUDA_CHECK(cudaGetLastError());
     }
     sync_after_launches();

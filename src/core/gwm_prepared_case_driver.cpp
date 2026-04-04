@@ -25,9 +25,21 @@ struct DriverOptions {
   gwm::ingest::PreparedCaseInitConfig init_config{};
   gwm::dycore::DryStepperConfig step_config{};
   int steps = 1;
+  bool enable_boundaries = true;
+  bool enable_fast_modes = true;
+  bool enable_tracer_transport = true;
+  bool enable_warm_rain = true;
   std::string summary_json_path;
   std::string plan_view_json_path;
   int plan_view_level = 0;
+};
+
+class NullFastModeIntegrator final : public gwm::dycore::FastModeIntegrator {
+ public:
+  void apply(std::vector<gwm::dycore::DryState>&,
+             const std::vector<gwm::domain::SubdomainDescriptor>&,
+             const gwm::domain::GridMetrics&,
+             const gwm::dycore::DryStepperConfig&) override {}
 };
 
 bool driver_trace_enabled() {
@@ -90,6 +102,14 @@ void parse_args(int argc, char** argv, DriverOptions& opts) {
       opts.boundary_cache_path = require_value(i, argc, argv);
     } else if (arg == "--steps") {
       opts.steps = parse_value<int>(require_value(i, argc, argv));
+    } else if (arg == "--enable-boundaries") {
+      opts.enable_boundaries = parse_bool(require_value(i, argc, argv));
+    } else if (arg == "--enable-fast-modes") {
+      opts.enable_fast_modes = parse_bool(require_value(i, argc, argv));
+    } else if (arg == "--enable-tracer-transport") {
+      opts.enable_tracer_transport = parse_bool(require_value(i, argc, argv));
+    } else if (arg == "--enable-warm-rain") {
+      opts.enable_warm_rain = parse_bool(require_value(i, argc, argv));
     } else if (arg == "--dt") {
       opts.step_config.dt = parse_value<float>(require_value(i, argc, argv));
     } else if (arg == "--fast-substeps") {
@@ -97,6 +117,12 @@ void parse_args(int argc, char** argv, DriverOptions& opts) {
           parse_value<int>(require_value(i, argc, argv));
     } else if (arg == "--gravity") {
       opts.step_config.gravity = parse_value<float>(require_value(i, argc, argv));
+    } else if (arg == "--fast-update-horizontal-momentum") {
+      opts.step_config.fast_update_horizontal_momentum =
+          parse_bool(require_value(i, argc, argv));
+    } else if (arg == "--fast-update-density") {
+      opts.step_config.fast_update_density =
+          parse_bool(require_value(i, argc, argv));
     } else if (arg == "--halo") {
       opts.init_config.halo = parse_value<int>(require_value(i, argc, argv));
     } else if (arg == "--ranks-x") {
@@ -134,7 +160,11 @@ void parse_args(int argc, char** argv, DriverOptions& opts) {
 
 std::string prepared_summary_json(
     const gwm::ingest::PreparedRuntimeCase& runtime_case, int steps,
-    gwm::real dt, int fast_substeps,
+    gwm::real dt, int fast_substeps, bool enable_boundaries,
+    bool enable_fast_modes, bool enable_tracer_transport,
+    bool enable_warm_rain, bool fast_update_horizontal_momentum,
+    bool fast_update_density,
+    const gwm::ingest::PreparedCaseBalanceDiagnostics& startup_balance,
     const gwm::surface::SurfaceRuntimeInitResult& surface_runtime,
     const gwm::core::RuntimeStateSummary& initial,
     const gwm::core::RuntimeStateSummary& final) {
@@ -153,6 +183,18 @@ std::string prepared_summary_json(
   oss << "  \"steps\": " << steps << ",\n";
   oss << "  \"dt\": " << dt << ",\n";
   oss << "  \"fast_substeps\": " << fast_substeps << ",\n";
+  oss << "  \"enable_boundaries\": " << (enable_boundaries ? "true" : "false")
+      << ",\n";
+  oss << "  \"enable_fast_modes\": " << (enable_fast_modes ? "true" : "false")
+      << ",\n";
+  oss << "  \"enable_tracer_transport\": "
+      << (enable_tracer_transport ? "true" : "false") << ",\n";
+  oss << "  \"enable_warm_rain\": " << (enable_warm_rain ? "true" : "false")
+      << ",\n";
+  oss << "  \"fast_update_horizontal_momentum\": "
+      << (fast_update_horizontal_momentum ? "true" : "false") << ",\n";
+  oss << "  \"fast_update_density\": "
+      << (fast_update_density ? "true" : "false") << ",\n";
   oss << "  \"elapsed_seconds\": " << elapsed_seconds << ",\n";
   oss << "  \"elapsed_hours\": " << elapsed_hours << ",\n";
   oss << "  \"grid\": {\n";
@@ -166,6 +208,29 @@ std::string prepared_summary_json(
   oss << "  \"surface_runtime\": {\n";
   oss << "    \"ntile\": " << surface_runtime.state.ntile() << ",\n";
   oss << "    \"nsoil\": " << surface_runtime.state.nsoil() << "\n";
+  oss << "  },\n";
+  oss << "  \"startup_balance\": {\n";
+  oss << "    \"max_rel_eos\": " << startup_balance.max_rel_eos << ",\n";
+  oss << "    \"max_rel_hydrostatic\": " << startup_balance.max_rel_hydrostatic
+      << ",\n";
+  oss << "    \"max_rel_fast_vertical\": "
+      << startup_balance.max_rel_fast_vertical << ",\n";
+  oss << "    \"max_abs_mass_divergence\": "
+      << startup_balance.max_abs_mass_divergence << ",\n";
+  oss << "    \"max_rel_mass_divergence\": "
+      << startup_balance.max_rel_mass_divergence << ",\n";
+  oss << "    \"max_abs_mom_w_bottom\": "
+      << startup_balance.max_abs_mom_w_bottom << ",\n";
+  oss << "    \"max_abs_mom_w_top\": " << startup_balance.max_abs_mom_w_top
+      << ",\n";
+  oss << "    \"max_abs_tracer_closure\": "
+      << startup_balance.max_abs_tracer_closure;
+  if (startup_balance.max_abs_z_src_minus_metric.has_value()) {
+    oss << ",\n    \"max_abs_z_src_minus_metric\": "
+        << *startup_balance.max_abs_z_src_minus_metric << "\n";
+  } else {
+    oss << "\n";
+  }
   oss << "  },\n";
   oss << "  \"initial\": "
       << gwm::core::runtime_state_summary_to_json(initial, "    ") << ",\n";
@@ -196,11 +261,14 @@ int main(int argc, char** argv) {
                                                 opts.init_config);
     trace_driver("metrics_built");
     auto states = gwm::ingest::make_dry_states_from_analysis(
-        runtime_case.analysis, layout, "prepared_case");
+        runtime_case.analysis, metrics, layout, "prepared_case");
     trace_driver("dry_states_initialized");
     auto tracers = gwm::ingest::make_warm_rain_tracers_from_analysis(
         runtime_case.analysis, states, layout, "prepared_case_tracer");
     trace_driver("warm_rain_tracers_initialized");
+    const auto startup_balance = gwm::ingest::diagnose_prepared_case_balance(
+        runtime_case.analysis, metrics, states, layout, &tracers);
+    trace_driver("startup_balance_done");
 
     const auto surface_runtime = gwm::surface::make_surface_runtime_from_canonical_fields(
         runtime_case.analysis.surface, runtime_case.analysis.static_surface,
@@ -220,11 +288,29 @@ int main(int argc, char** argv) {
                                           &surface_precip_accum);
     trace_driver("initial_summary_done");
 
-    gwm::ingest::PreparedCaseBoundaryUpdater boundary_updater(
+    gwm::ingest::PreparedCaseBoundaryUpdater prepared_boundary_updater(
         runtime_case.analysis, runtime_case.boundary_cache, opts.init_config);
-    gwm::ingest::PreparedCaseTracerBoundaryUpdater tracer_boundary_updater(
+    gwm::dycore::NullBoundaryUpdater null_boundary_updater;
+    gwm::dycore::BoundaryUpdater& boundary_updater =
+        opts.enable_boundaries
+            ? static_cast<gwm::dycore::BoundaryUpdater&>(
+                  prepared_boundary_updater)
+            : static_cast<gwm::dycore::BoundaryUpdater&>(null_boundary_updater);
+    gwm::ingest::PreparedCaseTracerBoundaryUpdater prepared_tracer_boundary_updater(
         runtime_case.analysis, runtime_case.boundary_cache, opts.init_config);
-    gwm::dycore::LocalSplitExplicitFastMode fast_modes;
+    gwm::dycore::NullTracerBoundaryUpdater null_tracer_boundary_updater;
+    gwm::dycore::TracerBoundaryUpdater& tracer_boundary_updater =
+        opts.enable_boundaries
+            ? static_cast<gwm::dycore::TracerBoundaryUpdater&>(
+                  prepared_tracer_boundary_updater)
+            : static_cast<gwm::dycore::TracerBoundaryUpdater&>(
+                  null_tracer_boundary_updater);
+    gwm::dycore::LocalSplitExplicitFastMode local_fast_modes;
+    NullFastModeIntegrator null_fast_modes;
+    gwm::dycore::FastModeIntegrator& fast_modes =
+        opts.enable_fast_modes
+            ? static_cast<gwm::dycore::FastModeIntegrator&>(local_fast_modes)
+            : static_cast<gwm::dycore::FastModeIntegrator&>(null_fast_modes);
     gwm::physics::WarmRainConfig warm_rain_config{};
     warm_rain_config.dt = opts.step_config.dt;
     warm_rain_config.rain_terminal_velocity = 12.0f;
@@ -232,21 +318,33 @@ int main(int argc, char** argv) {
     gwm::real sim_time = 0.0f;
     for (int step = 0; step < opts.steps; ++step) {
       trace_driver("step_" + std::to_string(step) + "_begin");
-      boundary_updater.set_step_start_time(sim_time);
-      tracer_boundary_updater.set_step_start_time(sim_time);
-      trace_driver("step_" + std::to_string(step) + "_boundaries_configured");
+      if (opts.enable_boundaries) {
+        prepared_boundary_updater.set_step_start_time(sim_time);
+        prepared_tracer_boundary_updater.set_step_start_time(sim_time);
+        trace_driver("step_" + std::to_string(step) + "_boundaries_configured");
+      } else {
+        trace_driver("step_" + std::to_string(step) + "_boundaries_disabled");
+      }
       gwm::dycore::advance_dry_state_ssprk3(states, layout, metrics,
                                             opts.step_config, boundary_updater,
                                             fast_modes);
       trace_driver("step_" + std::to_string(step) + "_dry_done");
-      gwm::dycore::advance_passive_tracers_ssprk3(
-          tracers, states, layout, metrics, opts.step_config,
-          tracer_boundary_updater);
-      trace_driver("step_" + std::to_string(step) + "_tracers_done");
-      gwm::physics::apply_warm_rain_microphysics(
-          states, tracers, layout, metrics, warm_rain_config,
-          &surface_precip_accum);
-      trace_driver("step_" + std::to_string(step) + "_warm_rain_done");
+      if (opts.enable_tracer_transport) {
+        gwm::dycore::advance_passive_tracers_ssprk3(
+            tracers, states, layout, metrics, opts.step_config,
+            tracer_boundary_updater);
+        trace_driver("step_" + std::to_string(step) + "_tracers_done");
+      } else {
+        trace_driver("step_" + std::to_string(step) + "_tracers_skipped");
+      }
+      if (opts.enable_warm_rain) {
+        gwm::physics::apply_warm_rain_microphysics(
+            states, tracers, layout, metrics, warm_rain_config,
+            &surface_precip_accum);
+        trace_driver("step_" + std::to_string(step) + "_warm_rain_done");
+      } else {
+        trace_driver("step_" + std::to_string(step) + "_warm_rain_skipped");
+      }
       sim_time += opts.step_config.dt;
     }
 
@@ -259,8 +357,15 @@ int main(int argc, char** argv) {
     trace_driver("final_summary_done");
     const auto summary_json =
         prepared_summary_json(runtime_case, opts.steps, opts.step_config.dt,
-                              opts.step_config.fast_substeps, surface_runtime,
-                              initial, final);
+                              opts.step_config.fast_substeps,
+                              opts.enable_boundaries,
+                              opts.enable_fast_modes,
+                              opts.enable_tracer_transport,
+                              opts.enable_warm_rain,
+                              opts.step_config.fast_update_horizontal_momentum,
+                              opts.step_config.fast_update_density,
+                              startup_balance,
+                              surface_runtime, initial, final);
 
     std::cout << summary_json << "\n";
 

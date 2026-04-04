@@ -10,12 +10,15 @@ perturbation form:
 - `d m_w / dt = -d p' / dz - rho' g`
 
 where `m = (rho_d u, rho_d v, rho_d w)`, `p` is reconstructed from the dry
-EOS using `rho_d` and `rho_d theta_m`, and the fast subcycle holds
-`rho_d theta_m` fixed.
+EOS using `rho_d` and `rho_d theta_m`, and the fast subcycle preserves
+`theta_m` while rebuilding `rho_d theta_m = rho_d * theta_m` from the updated
+density each substep.
 
 ## Discrete update
 
 - Use `dt_fast = dt / fast_substeps`.
+- Extract a haloed `theta_m` field once at fast-mode entry and rebuild
+  `rho_d theta_m` from the evolving `rho_d` each substep.
 - Reconstruct pressure each substep from the canonical conserved state.
 - Update `mom_u` and `mom_v` from face-centered pressure differences.
 - Update `mom_w` from a perturbation-form vertical pressure-gradient plus
@@ -26,6 +29,8 @@ EOS using `rho_d` and `rho_d theta_m`, and the fast subcycle holds
   `GridMetrics` in the vertical acoustic branch.
 - Exchange face halos.
 - Update `rho_d` from the divergence of the updated face momenta.
+- Rebuild the conserved thermodynamic variable from the updated `rho_d` and the
+  fixed fast-mode `theta_m`.
 
 This is a local forward-backward acoustic subcycle. It does not yet include
 nonlinear momentum transport, Coriolis, real MPI exchange, or moist coupling.
