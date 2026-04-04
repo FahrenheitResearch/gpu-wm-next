@@ -383,6 +383,264 @@ BalancedPreparedCaseColumns build_balanced_prepared_case_columns(
   return columns;
 }
 
+AnalysisStateIR make_boundary_analysis_from_snapshot(
+    const AnalysisStateIR& analysis, const BoundarySnapshotIR& snapshot) {
+  AnalysisStateIR boundary_analysis = analysis;
+  boundary_analysis.valid_time_utc = snapshot.valid_time_utc;
+  boundary_analysis.forecast_offset_seconds = snapshot.forecast_offset_seconds;
+  boundary_analysis.atmosphere = snapshot.atmosphere;
+  boundary_analysis.surface = snapshot.surface;
+  return boundary_analysis;
+}
+
+void refresh_boundary_projection_cache(
+    const AnalysisStateIR& analysis, const BoundaryCacheIR& cache,
+    const domain::GridMetrics& metrics, real step_start_time_seconds,
+    real sim_time, int& cached_forecast_offset_seconds,
+    BoundarySnapshotIR& cached_snapshot, std::vector<real>& cached_rho_d,
+    std::vector<real>& cached_rho_theta_m, std::vector<real>& cached_mom_u,
+    std::vector<real>& cached_mom_v, std::vector<real>& cached_mom_w) {
+  const int forecast_offset_seconds =
+      static_cast<int>(std::lround(step_start_time_seconds + sim_time));
+  if (forecast_offset_seconds == cached_forecast_offset_seconds) {
+    return;
+  }
+
+  cached_snapshot = interpolate_boundary_snapshot(cache, forecast_offset_seconds);
+  const auto boundary_analysis =
+      make_boundary_analysis_from_snapshot(analysis, cached_snapshot);
+  auto balanced = build_balanced_prepared_case_columns(boundary_analysis, metrics);
+  auto face_momenta = build_projected_prepared_case_face_momenta(
+      boundary_analysis, metrics, balanced);
+
+  cached_forecast_offset_seconds = forecast_offset_seconds;
+  cached_rho_d = std::move(balanced.rho_d);
+  cached_rho_theta_m = std::move(balanced.rho_theta_m);
+  cached_mom_u = std::move(face_momenta.mom_u);
+  cached_mom_v = std::move(face_momenta.mom_v);
+  cached_mom_w = std::move(face_momenta.mom_w);
+}
+
+void apply_cached_dry_boundary_strips(
+    std::vector<dycore::DryState>& states,
+    const std::vector<domain::SubdomainDescriptor>& layout, int global_nx,
+    int global_ny, const std::vector<real>& rho_d,
+    const std::vector<real>& rho_theta_m, const std::vector<real>& mom_u,
+    const std::vector<real>& mom_v, const std::vector<real>& mom_w) {
+  gwm::require(states.size() == layout.size(),
+               "State/layout size mismatch in apply_cached_dry_boundary_strips");
+
+  for (std::size_t rank = 0; rank < layout.size(); ++rank) {
+    auto& state = states[rank];
+    const auto& desc = layout[rank];
+
+    if (dycore::touches_west_boundary(desc)) {
+      const int i_global = desc.i_begin;
+      for (int j = 0; j < desc.ny_local(); ++j) {
+        const int j_global = desc.j_begin + j;
+        for (int k = 0; k < desc.nz; ++k) {
+          const auto idx = linear_index_3d(i_global, j_global, k, global_nx,
+                                           global_ny);
+          state.rho_d(0, j, k) = rho_d[idx];
+          state.rho_theta_m(0, j, k) = rho_theta_m[idx];
+          state.mom_u.storage()(0, j, k) =
+              mom_u[linear_index_xface(i_global, j_global, k, global_nx,
+                                       global_ny)];
+        }
+      }
+      for (int j_face = 0; j_face < desc.ny_local() + 1; ++j_face) {
+        const int j_global = desc.j_begin + j_face;
+        for (int k = 0; k < desc.nz; ++k) {
+          state.mom_v.storage()(0, j_face, k) =
+              mom_v[linear_index_yface(i_global, j_global, k, global_nx,
+                                       global_ny)];
+        }
+      }
+      for (int j = 0; j < desc.ny_local(); ++j) {
+        const int j_global = desc.j_begin + j;
+        for (int k_face = 0; k_face <= desc.nz; ++k_face) {
+          state.mom_w.storage()(0, j, k_face) =
+              mom_w[linear_index_zface(i_global, j_global, k_face, global_nx,
+                                       global_ny)];
+        }
+      }
+    }
+
+    if (dycore::touches_east_boundary(desc)) {
+      const int i_local = desc.nx_local() - 1;
+      const int i_global = desc.i_begin + i_local;
+      for (int j = 0; j < desc.ny_local(); ++j) {
+        const int j_global = desc.j_begin + j;
+        for (int k = 0; k < desc.nz; ++k) {
+          const auto idx = linear_index_3d(i_global, j_global, k, global_nx,
+                                           global_ny);
+          state.rho_d(i_local, j, k) = rho_d[idx];
+          state.rho_theta_m(i_local, j, k) = rho_theta_m[idx];
+          state.mom_u.storage()(desc.nx_local(), j, k) =
+              mom_u[linear_index_xface(desc.i_begin + desc.nx_local(), j_global,
+                                       k, global_nx, global_ny)];
+        }
+      }
+      for (int j_face = 0; j_face < desc.ny_local() + 1; ++j_face) {
+        const int j_global = desc.j_begin + j_face;
+        for (int k = 0; k < desc.nz; ++k) {
+          state.mom_v.storage()(i_local, j_face, k) =
+              mom_v[linear_index_yface(i_global, j_global, k, global_nx,
+                                       global_ny)];
+        }
+      }
+      for (int j = 0; j < desc.ny_local(); ++j) {
+        const int j_global = desc.j_begin + j;
+        for (int k_face = 0; k_face <= desc.nz; ++k_face) {
+          state.mom_w.storage()(i_local, j, k_face) =
+              mom_w[linear_index_zface(i_global, j_global, k_face, global_nx,
+                                       global_ny)];
+        }
+      }
+    }
+
+    if (dycore::touches_south_boundary(desc)) {
+      const int j_global = desc.j_begin;
+      for (int i = 0; i < desc.nx_local(); ++i) {
+        const int i_global = desc.i_begin + i;
+        for (int k = 0; k < desc.nz; ++k) {
+          const auto idx = linear_index_3d(i_global, j_global, k, global_nx,
+                                           global_ny);
+          state.rho_d(i, 0, k) = rho_d[idx];
+          state.rho_theta_m(i, 0, k) = rho_theta_m[idx];
+          state.mom_v.storage()(i, 0, k) =
+              mom_v[linear_index_yface(i_global, j_global, k, global_nx,
+                                       global_ny)];
+        }
+      }
+      for (int i_face = 0; i_face < desc.nx_local() + 1; ++i_face) {
+        const int i_global = desc.i_begin + i_face;
+        for (int k = 0; k < desc.nz; ++k) {
+          state.mom_u.storage()(i_face, 0, k) =
+              mom_u[linear_index_xface(i_global, j_global, k, global_nx,
+                                       global_ny)];
+        }
+      }
+      for (int i = 0; i < desc.nx_local(); ++i) {
+        const int i_global = desc.i_begin + i;
+        for (int k_face = 0; k_face <= desc.nz; ++k_face) {
+          state.mom_w.storage()(i, 0, k_face) =
+              mom_w[linear_index_zface(i_global, j_global, k_face, global_nx,
+                                       global_ny)];
+        }
+      }
+    }
+
+    if (dycore::touches_north_boundary(desc)) {
+      const int j_local = desc.ny_local() - 1;
+      const int j_global = desc.j_begin + j_local;
+      for (int i = 0; i < desc.nx_local(); ++i) {
+        const int i_global = desc.i_begin + i;
+        for (int k = 0; k < desc.nz; ++k) {
+          const auto idx = linear_index_3d(i_global, j_global, k, global_nx,
+                                           global_ny);
+          state.rho_d(i, j_local, k) = rho_d[idx];
+          state.rho_theta_m(i, j_local, k) = rho_theta_m[idx];
+          state.mom_v.storage()(i, desc.ny_local(), k) =
+              mom_v[linear_index_yface(i_global, desc.j_begin + desc.ny_local(),
+                                       k, global_nx, global_ny)];
+        }
+      }
+      for (int i_face = 0; i_face < desc.nx_local() + 1; ++i_face) {
+        const int i_global = desc.i_begin + i_face;
+        for (int k = 0; k < desc.nz; ++k) {
+          state.mom_u.storage()(i_face, j_local, k) =
+              mom_u[linear_index_xface(i_global, j_global, k, global_nx,
+                                       global_ny)];
+        }
+      }
+      for (int i = 0; i < desc.nx_local(); ++i) {
+        const int i_global = desc.i_begin + i;
+        for (int k_face = 0; k_face <= desc.nz; ++k_face) {
+          state.mom_w.storage()(i, j_local, k_face) =
+              mom_w[linear_index_zface(i_global, j_global, k_face, global_nx,
+                                       global_ny)];
+        }
+      }
+    }
+  }
+}
+
+void apply_cached_tracer_boundary_strips(
+    std::vector<state::TracerState>& states,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const BoundarySnapshotIR& snapshot, int global_nx, int global_ny,
+    const std::vector<real>& rho_d) {
+  gwm::require(
+      states.size() == layout.size(),
+      "Tracer/layout size mismatch in apply_cached_tracer_boundary_strips");
+
+  for (std::size_t rank = 0; rank < layout.size(); ++rank) {
+    auto& state = states[rank];
+    const auto& desc = layout[rank];
+    for (std::size_t tracer_index = 0; tracer_index < state.size();
+         ++tracer_index) {
+      const auto& spec = state.registry().at(static_cast<int>(tracer_index));
+      const auto field_it = snapshot.atmosphere.values.find(spec.name);
+      if (field_it == snapshot.atmosphere.values.end()) {
+        continue;
+      }
+
+      const auto& mixing_ratio = field_it->second;
+      auto& rho_q = state.mass(static_cast<int>(tracer_index));
+      if (dycore::touches_west_boundary(desc)) {
+        const int i_global = desc.i_begin;
+        for (int j = 0; j < desc.ny_local(); ++j) {
+          const int j_global = desc.j_begin + j;
+          for (int k = 0; k < desc.nz; ++k) {
+            const auto idx = linear_index_3d(i_global, j_global, k, global_nx,
+                                             global_ny);
+            rho_q(0, j, k) = rho_d[idx] * mixing_ratio[idx];
+          }
+        }
+      }
+
+      if (dycore::touches_east_boundary(desc)) {
+        const int i_local = desc.nx_local() - 1;
+        const int i_global = desc.i_begin + i_local;
+        for (int j = 0; j < desc.ny_local(); ++j) {
+          const int j_global = desc.j_begin + j;
+          for (int k = 0; k < desc.nz; ++k) {
+            const auto idx = linear_index_3d(i_global, j_global, k, global_nx,
+                                             global_ny);
+            rho_q(i_local, j, k) = rho_d[idx] * mixing_ratio[idx];
+          }
+        }
+      }
+
+      if (dycore::touches_south_boundary(desc)) {
+        const int j_global = desc.j_begin;
+        for (int i = 0; i < desc.nx_local(); ++i) {
+          const int i_global = desc.i_begin + i;
+          for (int k = 0; k < desc.nz; ++k) {
+            const auto idx = linear_index_3d(i_global, j_global, k, global_nx,
+                                             global_ny);
+            rho_q(i, 0, k) = rho_d[idx] * mixing_ratio[idx];
+          }
+        }
+      }
+
+      if (dycore::touches_north_boundary(desc)) {
+        const int j_local = desc.ny_local() - 1;
+        const int j_global = desc.j_begin + j_local;
+        for (int i = 0; i < desc.nx_local(); ++i) {
+          const int i_global = desc.i_begin + i;
+          for (int k = 0; k < desc.nz; ++k) {
+            const auto idx = linear_index_3d(i_global, j_global, k, global_nx,
+                                             global_ny);
+            rho_q(i, j_local, k) = rho_d[idx] * mixing_ratio[idx];
+          }
+        }
+      }
+    }
+  }
+}
+
 }  // namespace
 
 std::vector<domain::SubdomainDescriptor> make_prepared_case_layout(
@@ -778,16 +1036,14 @@ void PreparedCaseBoundaryUpdater::apply(
     return;
   }
 
-  const auto snapshot = interpolate_boundary_snapshot(
-      cache_, static_cast<int>(std::lround(step_start_time_seconds_ + sim_time)));
-  AnalysisStateIR boundary_analysis = analysis_;
-  boundary_analysis.valid_time_utc = snapshot.valid_time_utc;
-  boundary_analysis.forecast_offset_seconds = snapshot.forecast_offset_seconds;
-  boundary_analysis.atmosphere = snapshot.atmosphere;
-  boundary_analysis.surface = snapshot.surface;
-  const auto boundary_states = make_dry_states_from_analysis(
-      boundary_analysis, metrics_, layout, "boundary_ref");
-  dycore::apply_reference_boundaries(states, boundary_states, layout);
+  refresh_boundary_projection_cache(
+      analysis_, cache_, metrics_, step_start_time_seconds_, sim_time,
+      cached_forecast_offset_seconds_, cached_snapshot_, cached_rho_d_,
+      cached_rho_theta_m_, cached_mom_u_, cached_mom_v_, cached_mom_w_);
+  apply_cached_dry_boundary_strips(states, layout, analysis_.grid.nx,
+                                   analysis_.grid.ny, cached_rho_d_,
+                                   cached_rho_theta_m_, cached_mom_u_,
+                                   cached_mom_v_, cached_mom_w_);
 }
 
 PreparedCaseTracerBoundaryUpdater::PreparedCaseTracerBoundaryUpdater(
@@ -810,19 +1066,13 @@ void PreparedCaseTracerBoundaryUpdater::apply(
     return;
   }
 
-  const auto snapshot = interpolate_boundary_snapshot(
-      cache_, static_cast<int>(std::lround(step_start_time_seconds_ + sim_time)));
-  AnalysisStateIR boundary_analysis = analysis_;
-  boundary_analysis.valid_time_utc = snapshot.valid_time_utc;
-  boundary_analysis.forecast_offset_seconds = snapshot.forecast_offset_seconds;
-  boundary_analysis.atmosphere = snapshot.atmosphere;
-  boundary_analysis.surface = snapshot.surface;
-  const auto boundary_dry_states = make_dry_states_from_analysis(
-      boundary_analysis, metrics_, layout, "boundary_ref");
-  const auto boundary_tracers = make_tracers_from_analysis(
-      boundary_analysis, boundary_dry_states, layout,
-      states.front().registry(), "boundary_tracer", &states);
-  dycore::apply_reference_boundaries(states, boundary_tracers, layout);
+  refresh_boundary_projection_cache(
+      analysis_, cache_, metrics_, step_start_time_seconds_, sim_time,
+      cached_forecast_offset_seconds_, cached_snapshot_, cached_rho_d_,
+      cached_rho_theta_m_, cached_mom_u_, cached_mom_v_, cached_mom_w_);
+  apply_cached_tracer_boundary_strips(states, layout, cached_snapshot_,
+                                      analysis_.grid.nx, analysis_.grid.ny,
+                                      cached_rho_d_);
 }
 
 }  // namespace gwm::ingest

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -93,6 +94,13 @@ class PreparedCaseBoundaryUpdater final : public dycore::BoundaryUpdater {
   PreparedCaseInitConfig config_{};
   domain::GridMetrics metrics_{};
   real step_start_time_seconds_ = 0.0f;
+  int cached_forecast_offset_seconds_ = std::numeric_limits<int>::min();
+  BoundarySnapshotIR cached_snapshot_{};
+  std::vector<real> cached_rho_d_{};
+  std::vector<real> cached_rho_theta_m_{};
+  std::vector<real> cached_mom_u_{};
+  std::vector<real> cached_mom_v_{};
+  std::vector<real> cached_mom_w_{};
 };
 
 class PreparedCaseTracerBoundaryUpdater final
@@ -114,6 +122,13 @@ class PreparedCaseTracerBoundaryUpdater final
   PreparedCaseInitConfig config_{};
   domain::GridMetrics metrics_{};
   real step_start_time_seconds_ = 0.0f;
+  int cached_forecast_offset_seconds_ = std::numeric_limits<int>::min();
+  BoundarySnapshotIR cached_snapshot_{};
+  std::vector<real> cached_rho_d_{};
+  std::vector<real> cached_rho_theta_m_{};
+  std::vector<real> cached_mom_u_{};
+  std::vector<real> cached_mom_v_{};
+  std::vector<real> cached_mom_w_{};
 };
 
 }  // namespace gwm::ingest

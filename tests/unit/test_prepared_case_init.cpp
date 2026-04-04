@@ -242,6 +242,20 @@ gwm::ingest::AnalysisStateIR make_boundary_analysis() {
   return analysis;
 }
 
+gwm::ingest::AnalysisStateIR make_late_boundary_analysis() {
+  auto analysis = make_analysis();
+  apply_constant_offset(analysis.atmosphere.values["air_pressure"], -1800.0f);
+  apply_constant_offset(analysis.atmosphere.values["air_temperature"], 2.0f);
+  apply_constant_offset(analysis.atmosphere.values["specific_humidity"],
+                        0.0025f);
+  apply_constant_offset(analysis.atmosphere.values["u_wind"], 3.0f);
+  apply_constant_offset(analysis.atmosphere.values["v_wind"], -1.5f);
+  apply_constant_offset(analysis.atmosphere.values["w_wind"], 20.0f);
+  apply_constant_offset(analysis.atmosphere.values["geopotential_height"],
+                        30.0f);
+  return analysis;
+}
+
 gwm::ingest::BoundaryCacheIR make_boundary_cache() {
   using namespace gwm;
   using namespace gwm::ingest;
@@ -406,6 +420,20 @@ int main() {
               1.0e-5f);
   }
 
+  boundary_states[0].fill_constant(0.25f, 285.0f, -1.0f, 2.0f, 3.0f);
+  boundary_updater.apply(boundary_states, layout, 1800.0f);
+  const auto late_boundary_analysis = make_late_boundary_analysis();
+  const auto expected_late_boundary_states =
+      make_dry_states_from_analysis(late_boundary_analysis, metrics, layout);
+  TEST_NEAR(boundary_states[0].rho_d(0, 0, 1),
+            expected_late_boundary_states[0].rho_d(0, 0, 1), 1.0e-5f);
+  TEST_NEAR(boundary_states[0].mom_u.storage()(0, 0, 1),
+            expected_late_boundary_states[0].mom_u.storage()(0, 0, 1),
+            1.0e-5f);
+  TEST_NEAR(boundary_states[0].mom_v.storage()(1, 1, 2),
+            expected_late_boundary_states[0].mom_v.storage()(1, 1, 2),
+            1.0e-5f);
+
   auto boundary_warm_rain_tracers = make_warm_rain_tracers_from_analysis(
       analysis, states, layout, "prepared_case_boundary_warm_rain");
   auto& qv =
@@ -443,8 +471,32 @@ int main() {
                 .mass(gwm::state::kRainWaterTracerName)(0, 0, 0),
             0.010f, 1.0e-6f);
 
+  qv.fill(0.0f);
+  qc.fill(0.030f);
+  qr.fill(0.040f);
+  tracer_boundary_updater.apply(boundary_warm_rain_tracers, layout, 1800.0f);
+  const auto expected_late_boundary_tracers = make_warm_rain_tracers_from_analysis(
+      late_boundary_analysis, expected_late_boundary_states, layout,
+      "expected_late_boundary_warm_rain");
+  TEST_NEAR(boundary_warm_rain_tracers[0]
+                .mass(gwm::state::kSpecificHumidityTracerName)(0, 0, 0),
+            expected_late_boundary_tracers[0]
+                .mass(gwm::state::kSpecificHumidityTracerName)(0, 0, 0),
+            1.0e-5f);
+  TEST_NEAR(boundary_warm_rain_tracers[0]
+                .mass(gwm::state::kSpecificHumidityTracerName)(1, 1, 2),
+            expected_late_boundary_tracers[0]
+                .mass(gwm::state::kSpecificHumidityTracerName)(1, 1, 2),
+            1.0e-5f);
+  TEST_NEAR(boundary_warm_rain_tracers[0]
+                .mass(gwm::state::kCloudWaterTracerName)(0, 0, 0),
+            0.030f, 1.0e-6f);
+  TEST_NEAR(boundary_warm_rain_tracers[0]
+                .mass(gwm::state::kRainWaterTracerName)(0, 0, 0),
+            0.040f, 1.0e-6f);
+
   const auto boundary_diag = diagnose_prepared_case_balance(
-      boundary_analysis, metrics, boundary_states, layout,
+      late_boundary_analysis, metrics, boundary_states, layout,
       &boundary_warm_rain_tracers);
   check_balance_diag(boundary_diag);
 
