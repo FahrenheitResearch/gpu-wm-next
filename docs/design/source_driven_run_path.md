@@ -18,12 +18,15 @@ The bridge is:
    `boundary_cache.json`.
 4. The runtime emits summary, plan-view, and map-manifest JSON artifacts.
 5. The prepared-case summary sidecar now reports dry totals together with
-   warm-rain tracer totals and moisture-budget sidecars.
+   warm-rain tracer totals, moisture-budget sidecars, and accumulated
+   precipitation closure.
 6. When a populated companion `analysis_state.json` is present, the current
    plan-view writer may enrich the source-driven bundle with moisture
    diagnostics such as `specific_humidity`, `relative_humidity`, and
    `dewpoint`.
-7. `tools/verify/` validates the bundle.
+7. Runtime warm-rain products now also include accumulation/rate products that
+   come from the fallout sidecar rather than source enrichment.
+8. `tools/verify/` validates the bundle.
 
 ## Bundle Contents
 
@@ -61,6 +64,8 @@ making the handoff concrete enough to test.
   full moist physics lands
 - the warm-rain milestone keeps summary-sidecar verification ahead of any claim
   of full precip realism
+- accumulated precipitation is still a bounded first-cut diagnostic, not a full
+  surface hydrology or operational QPF contract
 
 ## Test Mapping
 

@@ -24,7 +24,8 @@ int tracer_index_or_neg(const std::vector<TracerSummary>& tracers,
 
 RuntimeStateSummary summarize_runtime_state(
     const std::vector<dycore::DryState>& states,
-    const std::vector<state::TracerState>& tracers) {
+    const std::vector<state::TracerState>& tracers,
+    const std::vector<physics::WarmRainSurfaceAccumulation>* accumulations) {
   gwm::require(states.size() == tracers.size(),
                "State/tracer size mismatch in summarize_runtime_state");
 
@@ -111,6 +112,16 @@ RuntimeStateSummary summarize_runtime_state(
       summary.moisture.cloud_water_mass + summary.moisture.rain_water_mass;
   summary.moisture.total_water_mass =
       summary.moisture.vapor_water_mass + summary.moisture.condensed_water_mass;
+  if (accumulations != nullptr) {
+    const auto warm_rain_summary =
+        physics::summarize_warm_rain(tracers, accumulations);
+    summary.moisture.accumulated_surface_precipitation_sum_mm =
+        warm_rain_summary.accumulated_surface_precipitation_sum_mm;
+    summary.moisture.mean_surface_precipitation_mm =
+        warm_rain_summary.mean_surface_precipitation_mm;
+    summary.moisture.max_surface_precipitation_mm =
+        warm_rain_summary.max_surface_precipitation_mm;
+  }
 
   return summary;
 }
@@ -148,7 +159,13 @@ std::string runtime_state_summary_to_json(const RuntimeStateSummary& summary,
   oss << indent << "  \"condensed_water_mass\": "
       << summary.moisture.condensed_water_mass << ",\n";
   oss << indent << "  \"total_water_mass\": "
-      << summary.moisture.total_water_mass << "\n";
+      << summary.moisture.total_water_mass << ",\n";
+  oss << indent << "  \"accumulated_surface_precipitation_sum_mm\": "
+      << summary.moisture.accumulated_surface_precipitation_sum_mm << ",\n";
+  oss << indent << "  \"mean_surface_precipitation_mm\": "
+      << summary.moisture.mean_surface_precipitation_mm << ",\n";
+  oss << indent << "  \"max_surface_precipitation_mm\": "
+      << summary.moisture.max_surface_precipitation_mm << "\n";
   oss << indent << "},\n";
   oss << indent << "\"tracers\": {\n";
   for (std::size_t idx = 0; idx < summary.tracers.size(); ++idx) {

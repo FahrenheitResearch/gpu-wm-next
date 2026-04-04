@@ -32,6 +32,8 @@ are:
   - `rain_water_mixing_ratio`
   - `total_condensate`
   - `column_rain_water`
+  - `accumulated_surface_precipitation`
+  - `mean_surface_precipitation_rate`
 - derived diagnostics:
   - `relative_humidity`
   - `dewpoint`
@@ -69,6 +71,8 @@ The runtime/product contract for this milestone is:
   inputs
 - `synthetic_reflectivity` is emitted only when rain water is present in the
   runtime tracer contract; there is no fake source-side substitute
+- precipitation products come from the runtime fallout/accumulation sidecar,
+  not from analysis-state enrichment
 - the moisture extension must not create a second canonical state container for
   diagnostics
 
@@ -77,7 +81,8 @@ The runtime/product contract for this milestone is:
 - current source-driven moist diagnostics still include derived plan-view
   products from populated companion analysis-state inputs
 - warm-rain remains bounded:
-  - no sedimentation/fallout yet
+  - fallout is represented by a bounded first-order sedimentation/accumulation
+    pass
   - no mixed-phase ice species
   - no surface/PBL/radiation coupling in the same patch
 - derived `relative_humidity` and `dewpoint` are diagnostic products, not

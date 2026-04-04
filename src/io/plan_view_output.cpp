@@ -40,9 +40,24 @@ std::vector<double> derive_column_rain_water_map(
     const std::vector<domain::SubdomainDescriptor>& layout,
     const domain::GridMetrics& metrics);
 
+std::vector<double> derive_column_tracer_map(
+    const std::vector<dycore::DryState>& states,
+    const std::vector<state::TracerState>& tracers,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics, const std::string& tracer_name);
+
+std::vector<double> derive_column_total_condensate_map(
+    const std::vector<double>& column_cloud_water,
+    const std::vector<double>& column_rain_water);
+
 std::vector<double> derive_synthetic_reflectivity_map(
     const std::vector<dycore::DryState>& states,
     const std::vector<state::TracerState>& tracers,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics);
+
+std::vector<double> derive_accumulated_surface_precipitation_map(
+    const std::vector<physics::WarmRainSurfaceAccumulation>& accumulations,
     const std::vector<domain::SubdomainDescriptor>& layout,
     const domain::GridMetrics& metrics);
 
@@ -265,6 +280,15 @@ std::vector<double> derive_column_rain_water_map(
     const std::vector<state::TracerState>& tracers,
     const std::vector<domain::SubdomainDescriptor>& layout,
     const domain::GridMetrics& metrics) {
+  return derive_column_tracer_map(states, tracers, layout, metrics,
+                                  gwm::state::kRainWaterTracerName);
+}
+
+std::vector<double> derive_column_tracer_map(
+    const std::vector<dycore::DryState>& states,
+    const std::vector<state::TracerState>& tracers,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics, const std::string& tracer_name) {
   gwm::require(states.size() == tracers.size() &&
                    states.size() == layout.size(),
                "State/tracer/layout mismatch in column rain-water derivation");
@@ -274,17 +298,17 @@ std::vector<double> derive_column_rain_water_map(
                               static_cast<std::size_t>(metrics.ny),
                           0.0));
   for (std::size_t n = 0; n < states.size(); ++n) {
-    const auto qr_index = tracers[n].find(gwm::state::kRainWaterTracerName);
-    if (!qr_index.has_value()) {
+    const auto tracer_index = tracers[n].find(tracer_name);
+    if (!tracer_index.has_value()) {
       continue;
     }
-    const auto& rho_qr = tracers[n].mass(*qr_index);
+    const auto& rho_q = tracers[n].mass(*tracer_index);
     const auto& desc = layout[n];
     for (int j = 0; j < desc.ny_local(); ++j) {
       for (int i = 0; i < desc.nx_local(); ++i) {
         double column = 0.0;
         for (int k = 0; k < desc.nz; ++k) {
-          column += static_cast<double>(rho_qr(i, j, k)) *
+          column += static_cast<double>(rho_q(i, j, k)) *
                     static_cast<double>(
                         1.0f / metrics.inv_dz_cell(desc.i_begin + i,
                                                     desc.j_begin + j, k));
@@ -308,6 +332,18 @@ std::vector<double> derive_column_rain_water_map(
     }
   }
   return combined;
+}
+
+std::vector<double> derive_column_total_condensate_map(
+    const std::vector<double>& column_cloud_water,
+    const std::vector<double>& column_rain_water) {
+  gwm::require(column_cloud_water.size() == column_rain_water.size(),
+               "Column cloud/rain size mismatch in condensate derivation");
+  std::vector<double> total(column_cloud_water.size(), 0.0);
+  for (std::size_t idx = 0; idx < total.size(); ++idx) {
+    total[idx] = column_cloud_water[idx] + column_rain_water[idx];
+  }
+  return total;
 }
 
 std::vector<double> derive_synthetic_reflectivity_map(
@@ -353,6 +389,46 @@ std::vector<double> derive_synthetic_reflectivity_map(
   for (const auto& map : maps) {
     for (std::size_t idx = 0; idx < combined.size(); ++idx) {
       combined[idx] = std::max(combined[idx], map[idx]);
+    }
+  }
+  return combined;
+}
+
+std::vector<double> derive_accumulated_surface_precipitation_map(
+    const std::vector<physics::WarmRainSurfaceAccumulation>& accumulations,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics) {
+  gwm::require(accumulations.size() == layout.size(),
+               "Accumulation/layout mismatch in surface-precip derivation");
+  std::vector<std::vector<double>> maps(
+      accumulations.size(),
+      std::vector<double>(static_cast<std::size_t>(metrics.nx) *
+                              static_cast<std::size_t>(metrics.ny),
+                          0.0));
+  for (std::size_t n = 0; n < accumulations.size(); ++n) {
+    const auto& accumulation = accumulations[n];
+    const auto& desc = layout[n];
+    gwm::require(accumulation.matches(desc.nx_local(), desc.ny_local()),
+                 "Warm-rain accumulation shape mismatch in plan-view output");
+    for (int j = 0; j < desc.ny_local(); ++j) {
+      for (int i = 0; i < desc.nx_local(); ++i) {
+        const auto global_index =
+            static_cast<std::size_t>(desc.j_begin + j) *
+                static_cast<std::size_t>(metrics.nx) +
+            static_cast<std::size_t>(desc.i_begin + i);
+        maps[n][global_index] = static_cast<double>(
+            accumulation.liquid_precipitation_kg_m2(i, j, 0));
+      }
+    }
+  }
+  std::vector<double> combined(static_cast<std::size_t>(metrics.nx) *
+                                   static_cast<std::size_t>(metrics.ny),
+                               0.0);
+  for (const auto& map : maps) {
+    for (std::size_t idx = 0; idx < combined.size(); ++idx) {
+      if (map[idx] != 0.0) {
+        combined[idx] = map[idx];
+      }
     }
   }
   return combined;
@@ -620,7 +696,8 @@ PlanViewBundle extract_runtime_plan_view(
     const std::vector<state::TracerState>& tracers,
     const std::vector<domain::SubdomainDescriptor>& layout,
     const domain::GridMetrics& metrics, const std::string& case_kind, int steps,
-    real dt, int slice_k) {
+    real dt, int slice_k,
+    const std::vector<physics::WarmRainSurfaceAccumulation>* accumulations) {
   auto bundle =
       extract_dry_plan_view(states, layout, metrics, case_kind, steps, dt, slice_k);
   if (tracers.empty()) {
@@ -667,8 +744,12 @@ PlanViewBundle extract_runtime_plan_view(
         qr_fields, layout, "rain_water_plan_view");
     const auto condensate_global = comm::VirtualRankLayout::gather_scalar(
         condensate_fields, layout, "condensate_plan_view");
+    const auto column_cloud = derive_column_tracer_map(
+        states, tracers, layout, metrics, gwm::state::kCloudWaterTracerName);
     const auto column_rain = derive_column_rain_water_map(
         states, tracers, layout, metrics);
+    const auto column_total_condensate =
+        derive_column_total_condensate_map(column_cloud, column_rain);
     const auto reflectivity = derive_synthetic_reflectivity_map(
         states, tracers, layout, metrics);
 
@@ -682,13 +763,45 @@ PlanViewBundle extract_runtime_plan_view(
                         make_slice_field("total_condensate", "kg kg^-1",
                                          condensate_global, clamped_k));
     set_or_append_field(bundle,
+                        make_flat_slice_field("column_cloud_water", "kg m^-2",
+                                              metrics.nx, metrics.ny,
+                                              std::move(column_cloud)));
+    set_or_append_field(bundle,
                         make_flat_slice_field("column_rain_water", "kg m^-2",
                                               metrics.nx, metrics.ny,
                                               std::move(column_rain)));
     set_or_append_field(bundle,
+                        make_flat_slice_field("column_total_condensate",
+                                              "kg m^-2", metrics.nx,
+                                              metrics.ny,
+                                              std::move(column_total_condensate)));
+    set_or_append_field(bundle,
                         make_flat_slice_field("synthetic_reflectivity", "dBZ",
                                               metrics.nx, metrics.ny,
                                               std::move(reflectivity)));
+    if (accumulations != nullptr) {
+      const auto accumulated_surface_precip =
+          derive_accumulated_surface_precipitation_map(*accumulations, layout,
+                                                       metrics);
+      std::vector<double> mean_surface_precipitation_rate;
+      mean_surface_precipitation_rate.reserve(accumulated_surface_precip.size());
+      const double elapsed_hours =
+          std::max(static_cast<double>(steps) * static_cast<double>(dt) / 3600.0,
+                   1.0e-9);
+      for (const double value : accumulated_surface_precip) {
+        mean_surface_precipitation_rate.push_back(value / elapsed_hours);
+      }
+      set_or_append_field(bundle,
+                          make_flat_slice_field(
+                              "accumulated_surface_precipitation", "mm",
+                              metrics.nx, metrics.ny,
+                              std::move(accumulated_surface_precip)));
+      set_or_append_field(bundle,
+                          make_flat_slice_field(
+                              "mean_surface_precipitation_rate", "mm h^-1",
+                              metrics.nx, metrics.ny,
+                              std::move(mean_surface_precipitation_rate)));
+    }
   }
   return bundle;
 }

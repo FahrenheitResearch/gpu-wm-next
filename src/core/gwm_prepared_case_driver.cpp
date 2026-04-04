@@ -179,8 +179,16 @@ int main(int argc, char** argv) {
         runtime_case.analysis.surface, runtime_case.analysis.static_surface,
         runtime_case.analysis.grid.nx, runtime_case.analysis.grid.ny);
     (void)surface_runtime.properties;
+    std::vector<gwm::physics::WarmRainSurfaceAccumulation> surface_precip_accum;
+    surface_precip_accum.resize(states.size());
+    for (std::size_t rank = 0; rank < states.size(); ++rank) {
+      surface_precip_accum[rank].reset(states[rank].rho_d.nx(),
+                                       states[rank].rho_d.ny(),
+                                       metrics.dx * metrics.dy);
+    }
 
-    const auto initial = gwm::core::summarize_runtime_state(states, tracers);
+    const auto initial =
+        gwm::core::summarize_runtime_state(states, tracers, &surface_precip_accum);
 
     gwm::ingest::PreparedCaseBoundaryUpdater boundary_updater(
         runtime_case.analysis, runtime_case.boundary_cache, opts.init_config);
@@ -189,6 +197,7 @@ int main(int argc, char** argv) {
     gwm::dycore::LocalSplitExplicitFastMode fast_modes;
     gwm::physics::WarmRainConfig warm_rain_config{};
     warm_rain_config.dt = opts.step_config.dt;
+    warm_rain_config.rain_terminal_velocity = 12.0f;
 
     gwm::real sim_time = 0.0f;
     for (int step = 0; step < opts.steps; ++step) {
@@ -200,12 +209,14 @@ int main(int argc, char** argv) {
       gwm::dycore::advance_passive_tracers_ssprk3(
           tracers, states, layout, metrics, opts.step_config,
           tracer_boundary_updater);
-      gwm::physics::apply_warm_rain_microphysics(states, tracers,
-                                                 warm_rain_config);
+      gwm::physics::apply_warm_rain_microphysics(
+          states, tracers, layout, metrics, warm_rain_config,
+          &surface_precip_accum);
       sim_time += opts.step_config.dt;
     }
 
-    const auto final = gwm::core::summarize_runtime_state(states, tracers);
+    const auto final =
+        gwm::core::summarize_runtime_state(states, tracers, &surface_precip_accum);
     const auto summary_json =
         prepared_summary_json(runtime_case, opts.steps, opts.step_config.dt,
                               opts.step_config.fast_substeps, surface_runtime,
@@ -225,7 +236,7 @@ int main(int argc, char** argv) {
     if (!opts.plan_view_json_path.empty()) {
       const auto plan_view = gwm::io::extract_runtime_plan_view(
           states, tracers, layout, metrics, "prepared_case", opts.steps,
-          opts.step_config.dt, opts.plan_view_level);
+          opts.step_config.dt, opts.plan_view_level, &surface_precip_accum);
       gwm::io::write_plan_view_bundle_json(plan_view, opts.plan_view_json_path);
     }
 

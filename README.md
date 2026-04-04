@@ -108,8 +108,14 @@ Current checkpoint:
   - registry-managed `cloud_water_mixing_ratio` and `rain_water_mixing_ratio`
     tracers
   - local warm-rain microphysics with optional latent-heating coupling
+  - bounded rain fallout to accumulated surface precipitation
+  - source-run plan-view/map products for:
+    - `accumulated_surface_precipitation`
+    - `mean_surface_precipitation_rate`
+    - `synthetic_reflectivity`
   - prepared-case `summary.json` tracer totals/ranges plus
-    vapor/cloud/rain/condensed/total water sidecars
+    vapor/cloud/rain/condensed/total water and accumulated-precipitation
+    sidecars
   - runtime-summary and warm-rain summary-closure tests
 
 Source-driven smoke example:

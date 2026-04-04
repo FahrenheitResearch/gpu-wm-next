@@ -46,9 +46,11 @@ def main() -> None:
         image_path = image_dir / "rho_d.png"
         qv_image_path = image_dir / "specific_humidity.png"
         refl_image_path = image_dir / "synthetic_reflectivity.png"
+        precip_image_path = image_dir / "accumulated_surface_precipitation.png"
         write_text(image_path, "placeholder image")
         write_text(qv_image_path, "placeholder image")
         write_text(refl_image_path, "placeholder image")
+        write_text(precip_image_path, "placeholder image")
 
         prepared_case_manifest = {
             "schema_version": "gwm-next-prepared-case/v1",
@@ -223,6 +225,9 @@ def main() -> None:
                     "rain_water_mass": 0.0,
                     "condensed_water_mass": 0.0,
                     "total_water_mass": 0.08,
+                    "accumulated_surface_precipitation_sum_mm": 0.0,
+                    "mean_surface_precipitation_mm": 0.0,
+                    "max_surface_precipitation_mm": 0.0,
                 },
                 "tracers": {
                     "specific_humidity": {
@@ -255,6 +260,9 @@ def main() -> None:
                     "rain_water_mass": 0.001,
                     "condensed_water_mass": 0.002,
                     "total_water_mass": 0.08,
+                    "accumulated_surface_precipitation_sum_mm": 0.002,
+                    "mean_surface_precipitation_mm": 0.0005,
+                    "max_surface_precipitation_mm": 0.001,
                 },
                 "tracers": {
                     "specific_humidity": {
@@ -374,6 +382,24 @@ def main() -> None:
                     "ny": 2,
                     "storage": "row_major_yx",
                     "values": [-20.0, 12.0, 24.0, 18.0],
+                },
+                {
+                    "name": "accumulated_surface_precipitation",
+                    "units": "mm",
+                    "location": "cell_center",
+                    "nx": 2,
+                    "ny": 2,
+                    "storage": "row_major_yx",
+                    "values": [0.0, 0.001, 0.001, 0.0],
+                },
+                {
+                    "name": "mean_surface_precipitation_rate",
+                    "units": "mm h^-1",
+                    "location": "cell_center",
+                    "nx": 2,
+                    "ny": 2,
+                    "storage": "row_major_yx",
+                    "values": [0.0, 1.8, 1.8, 0.0],
                 }
             ],
         }
@@ -402,6 +428,12 @@ def main() -> None:
                     "field": "synthetic_reflectivity",
                     "units": "dBZ",
                     "path": str(refl_image_path.resolve()),
+                    "format": "png",
+                },
+                {
+                    "field": "accumulated_surface_precipitation",
+                    "units": "mm",
+                    "path": str(precip_image_path.resolve()),
                     "format": "png",
                 }
             ],

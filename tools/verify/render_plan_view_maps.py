@@ -63,6 +63,13 @@ def percentile(values: list[float], frac: float) -> float:
     return ordered[lower] * (1.0 - alpha) + ordered[upper] * alpha
 
 
+def robust_positive_max(values: list[float], frac: float, floor: float) -> float:
+    positives = [value for value in values if math.isfinite(value) and value > 0.0]
+    if not positives:
+        return floor
+    return max(percentile(positives, frac), floor)
+
+
 def bilinear_upsample(rows: list[list[float]], scale: int) -> list[list[float]]:
     ny = len(rows)
     nx = len(rows[0]) if ny else 0
@@ -114,10 +121,61 @@ def choose_field_style(field: dict[str, Any], rows: list[list[float]]) -> dict[s
         style.update({"cmap": "terrain"})
         return style
     if "reflectivity" in name:
-        style.update({"cmap": "turbo", "vmin": -10.0, "vmax": 75.0})
+        style.update({"cmap": "gist_ncar", "vmin": -10.0, "vmax": 75.0})
+        return style
+    if "accumulated_surface_precipitation" in name:
+        style.update(
+            {
+                "cmap": "Blues",
+                "vmin": 0.0,
+                "vmax": robust_positive_max(values, 0.99, 0.1),
+            }
+        )
+        return style
+    if "mean_surface_precipitation_rate" in name:
+        style.update(
+            {
+                "cmap": "YlGnBu",
+                "vmin": 0.0,
+                "vmax": robust_positive_max(values, 0.99, 0.05),
+            }
+        )
+        return style
+    if "precipitation" in name:
+        style.update(
+            {
+                "cmap": "Blues",
+                "vmin": 0.0,
+                "vmax": robust_positive_max(values, 0.98, 0.1),
+            }
+        )
+        return style
+    if "column_total_condensate" in name:
+        style.update(
+            {
+                "cmap": "PuBuGn",
+                "vmin": 0.0,
+                "vmax": robust_positive_max(values, 0.99, 1.0e-6),
+            }
+        )
+        return style
+    if "column_cloud_water" in name:
+        style.update(
+            {
+                "cmap": "BuPu",
+                "vmin": 0.0,
+                "vmax": robust_positive_max(values, 0.99, 1.0e-6),
+            }
+        )
         return style
     if "column_rain_water" in name:
-        style.update({"cmap": "viridis", "vmin": 0.0, "vmax": percentile(values, 0.98)})
+        style.update(
+            {
+                "cmap": "viridis",
+                "vmin": 0.0,
+                "vmax": robust_positive_max(values, 0.99, 1.0e-6),
+            }
+        )
         return style
     if "relative_humidity" in name:
         style.update({"cmap": "Blues", "vmin": 0.0, "vmax": max(vmax, 100.0)})
@@ -126,7 +184,13 @@ def choose_field_style(field: dict[str, Any], rows: list[list[float]]) -> dict[s
         style.update({"cmap": "YlGnBu", "vmin": max(0.0, vmin)})
         return style
     if "cloud_water" in name or "rain_water" in name or "condensate" in name:
-        style.update({"cmap": "PuBuGn", "vmin": 0.0, "vmax": percentile(values, 0.99)})
+        style.update(
+            {
+                "cmap": "PuBuGn",
+                "vmin": 0.0,
+                "vmax": robust_positive_max(values, 0.995, 1.0e-8),
+            }
+        )
         return style
     if "dewpoint" in name or "temperature" in name or "theta" in name:
         style.update({"cmap": "coolwarm"})

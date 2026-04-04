@@ -39,8 +39,12 @@ int main() {
     tracers.front().mass(state::kSpecificHumidityTracerName)(1, 0, 0) = 0.012f;
     tracers.front().mass(state::kCloudWaterTracerName)(0, 0, 0) = 0.001f;
     tracers.front().mass(state::kRainWaterTracerName)(1, 0, 0) = 0.002f;
+    std::vector<physics::WarmRainSurfaceAccumulation> accumulations(1);
+    accumulations.front().reset(2, 1);
+    accumulations.front().liquid_precipitation_kg_m2(1, 0, 0) = 0.75f;
 
-    const auto summary = core::summarize_runtime_state(states, tracers);
+    const auto summary =
+        core::summarize_runtime_state(states, tracers, &accumulations);
     const auto& qv = require_tracer(summary, state::kSpecificHumidityTracerName);
     const auto& qc = require_tracer(summary, state::kCloudWaterTracerName);
     const auto& qr = require_tracer(summary, state::kRainWaterTracerName);
@@ -49,6 +53,10 @@ int main() {
     TEST_NEAR(summary.moisture.rain_water_mass, 0.002, 1.0e-6);
     TEST_NEAR(summary.moisture.condensed_water_mass, 0.003, 1.0e-6);
     TEST_NEAR(summary.moisture.total_water_mass, 0.025, 1.0e-6);
+    TEST_NEAR(summary.moisture.accumulated_surface_precipitation_sum_mm, 0.75,
+              1.0e-6);
+    TEST_NEAR(summary.moisture.mean_surface_precipitation_mm, 0.375, 1.0e-6);
+    TEST_NEAR(summary.moisture.max_surface_precipitation_mm, 0.75, 1.0e-6);
     TEST_CHECK(summary.tracers.size() == 3);
     TEST_NEAR(qv.mixing_ratio.min, 0.010, 1.0e-6);
     TEST_NEAR(qv.mixing_ratio.max, 0.012, 1.0e-6);
@@ -65,6 +73,8 @@ int main() {
     TEST_CHECK(json.find("\"cloud_water_mixing_ratio\"") != std::string::npos);
     TEST_CHECK(json.find("\"rain_water_mixing_ratio\"") != std::string::npos);
     TEST_CHECK(json.find("\"total_water_mass\"") != std::string::npos);
+    TEST_CHECK(json.find("\"accumulated_surface_precipitation_sum_mm\"") !=
+               std::string::npos);
     TEST_CHECK(json.find("\"mixing_ratio\"") != std::string::npos);
 
     return 0;

@@ -173,11 +173,18 @@ int main() {
       }
       warm_rain_tracers.push_back(std::move(tracer_state));
     }
+    std::vector<physics::WarmRainSurfaceAccumulation> accumulations;
+    accumulations.resize(layout.size());
+    for (const auto& desc : layout) {
+      auto& accumulation = accumulations[static_cast<std::size_t>(desc.rank)];
+      accumulation.reset(desc.nx_local(), desc.ny_local());
+      accumulation.liquid_precipitation_kg_m2(0, 0, 0) = 0.25f;
+    }
 
     const auto warm_rain_bundle = io::extract_runtime_plan_view(
         states, warm_rain_tracers, layout, metrics, "warm_rain_runtime", 4,
-        2.0f, 1);
-    TEST_CHECK(warm_rain_bundle.fields.size() == 18);
+        2.0f, 1, &accumulations);
+    TEST_CHECK(warm_rain_bundle.fields.size() == 20);
     TEST_NEAR(require_field(warm_rain_bundle,
                             gwm::state::kCloudWaterTracerName)
                   .values.front(),
@@ -193,6 +200,12 @@ int main() {
                    .values.front() > 0.0);
     TEST_CHECK(require_field(warm_rain_bundle, "synthetic_reflectivity")
                    .values.front() <= 75.0);
+    TEST_NEAR(require_field(warm_rain_bundle, "accumulated_surface_precipitation")
+                  .values.front(),
+              0.25, 1.0e-6);
+    TEST_NEAR(require_field(warm_rain_bundle, "mean_surface_precipitation_rate")
+                  .values.front(),
+              112.5, 1.0e-6);
 
     auto enriched = bundle;
     const auto temp_dir =

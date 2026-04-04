@@ -163,6 +163,8 @@ def main() -> None:
             "rain_water_mixing_ratio",
             "total_condensate",
             "column_rain_water",
+            "accumulated_surface_precipitation",
+            "mean_surface_precipitation_rate",
             "synthetic_reflectivity",
             "relative_humidity",
             "relative_humidity_2m",

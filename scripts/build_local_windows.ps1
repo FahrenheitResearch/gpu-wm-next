@@ -19,6 +19,11 @@ if (-not (Test-Path $cudaNvcc)) {
     throw "nvcc not found at '$cudaNvcc'."
 }
 
+$ctestCommand = "ctest --test-dir `"$repoRoot\$BuildDir`" --output-on-failure -C $Configuration"
+if ($TestRegex) {
+    $ctestCommand += " -R `"$TestRegex`""
+}
+
 $configure = @"
 @echo off
 call "$vsDevCmd" -arch=x64 -host_arch=x64
@@ -26,14 +31,14 @@ cmake -S "$repoRoot" -B "$repoRoot\$BuildDir" -G "$Generator" -DCMAKE_BUILD_TYPE
 if errorlevel 1 exit /b 1
 cmake --build "$repoRoot\$BuildDir" --parallel
 if errorlevel 1 exit /b 1
-ctest --test-dir "$repoRoot\$BuildDir" --output-on-failure -C $Configuration $(if ($TestRegex) { "-R `"$TestRegex`"" })
+$ctestCommand
 if errorlevel 1 exit /b 1
 "@
 
 $tempCmd = Join-Path $env:TEMP "gpu_wm_next_build_local.cmd"
 Set-Content -LiteralPath $tempCmd -Value $configure -Encoding ASCII
 try {
-    cmd /c $tempCmd
+    & $tempCmd
     if ($LASTEXITCODE -ne 0) {
         throw "Local Windows build/test failed with exit code $LASTEXITCODE."
     }

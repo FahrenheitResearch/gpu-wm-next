@@ -8,6 +8,7 @@
 #include "gwm/domain/subdomain_descriptor.hpp"
 #include "gwm/dycore/dry_core.hpp"
 #include "gwm/ingest/analysis_state.hpp"
+#include "gwm/physics/warm_rain.hpp"
 #include "gwm/state/tracer_state.hpp"
 
 namespace gwm::io {
@@ -46,7 +47,9 @@ struct PlanViewBundle {
     const std::vector<state::TracerState>& tracers,
     const std::vector<domain::SubdomainDescriptor>& layout,
     const domain::GridMetrics& metrics, const std::string& case_kind, int steps,
-    real dt, int slice_k);
+    real dt, int slice_k,
+    const std::vector<physics::WarmRainSurfaceAccumulation>* accumulations =
+        nullptr);
 
 void enrich_plan_view_bundle_from_prepared_case(
     PlanViewBundle& bundle, const std::string& analysis_state_path);
