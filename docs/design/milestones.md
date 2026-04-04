@@ -77,6 +77,9 @@
 - canonical ingest/runtime schema for analysis state and time-indexed boundary
   cache metadata
 - casebuilder target-area workflow
+- first model-to-map bridge:
+  - plan-view dry-state field output from `gwm_idealized_driver`
+  - rendered image products plus `map_manifest.json`
 - severe-weather diagnostics/product set
 - restart/rerun loop
 

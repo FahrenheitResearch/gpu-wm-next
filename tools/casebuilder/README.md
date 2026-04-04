@@ -75,3 +75,25 @@ The output directory defaults to:
 model. The new `product_plan.json` artifact explicitly records that
 `idealized_summary_json` is the current verification/product bridge while real
 source-driven map products are still being built out.
+
+It can also request a plan-view field slice from the driver and render actual
+map images in one step.
+
+Example:
+
+```powershell
+python tools/casebuilder/run_idealized_case.py `
+  cases/idealized/warm_bubble.yaml `
+  --steps 2 `
+  --dt 2.0 `
+  --fast-substeps 2 `
+  --plan-view-level 6 `
+  --render-maps
+```
+
+That produces:
+
+- `<case>.summary.json`
+- `<case>.plan_view.json`
+- `<case>.plan_view_maps/map_manifest.json`
+- one rendered image per emitted field

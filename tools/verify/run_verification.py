@@ -164,6 +164,71 @@ def verify_product_plan(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def verify_map_manifest(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    images = payload.get("images", [])
+    checks = [
+        {
+            "name": "schema_version",
+            "passed": payload.get("schema_version") == "gwm-next-map-manifest/v1",
+            "detail": payload.get("schema_version", ""),
+        },
+        {
+            "name": "images_present",
+            "passed": bool(images),
+            "detail": len(images),
+        },
+        {
+            "name": "image_paths_exist",
+            "passed": all(Path(image.get("path", "")).exists() for image in images),
+            "detail": [image.get("path", "") for image in images],
+        },
+    ]
+    return {
+        "input_kind": "map_manifest",
+        "input_path": str(path.resolve()),
+        "checked_at_utc": utc_now(),
+        "checks": checks,
+        "overall_passed": all(check["passed"] for check in checks),
+    }
+
+
+def verify_plan_view_bundle(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    fields = payload.get("fields", [])
+    grid = payload.get("grid", {})
+    checks = [
+        {
+            "name": "schema_version",
+            "passed": payload.get("schema_version") == "gwm-next-plan-view/v1",
+            "detail": payload.get("schema_version", ""),
+        },
+        {
+            "name": "fields_present",
+            "passed": bool(fields),
+            "detail": len(fields),
+        },
+        {
+            "name": "grid_shape_present",
+            "passed": int(grid.get("nx", 0)) > 0 and int(grid.get("ny", 0)) > 0,
+            "detail": grid,
+        },
+        {
+            "name": "field_storage_consistent",
+            "passed": all(
+                int(field.get("nx", 0)) * int(field.get("ny", 0)) == len(field.get("values", []))
+                for field in fields
+            ),
+            "detail": [field.get("name", "") for field in fields],
+        },
+    ]
+    return {
+        "input_kind": "plan_view_bundle",
+        "input_path": str(path.resolve()),
+        "checked_at_utc": utc_now(),
+        "checks": checks,
+        "overall_passed": all(check["passed"] for check in checks),
+    }
+
+
 def verify_idealized_summary(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     initial = payload.get("initial", {})
     final = payload.get("final", {})
@@ -230,6 +295,10 @@ def detect_kind(payload: dict[str, Any]) -> str:
         return "checkpoint_stub"
     if schema_version == "gwm-next-product-plan/v1":
         return "product_plan"
+    if schema_version == "gwm-next-plan-view/v1":
+        return "plan_view_bundle"
+    if schema_version == "gwm-next-map-manifest/v1":
+        return "map_manifest"
     if all(key in payload for key in ("case", "initial", "final")):
         return "idealized_summary"
     raise ValueError("Unable to detect input kind from JSON payload")
@@ -249,6 +318,8 @@ def main() -> None:
             "boundary_cache_stub",
             "checkpoint_stub",
             "product_plan",
+            "plan_view_bundle",
+            "map_manifest",
             "idealized_summary",
         ],
     )
@@ -267,6 +338,10 @@ def main() -> None:
         report = verify_checkpoint_stub(input_path, payload)
     elif kind == "product_plan":
         report = verify_product_plan(input_path, payload)
+    elif kind == "plan_view_bundle":
+        report = verify_plan_view_bundle(input_path, payload)
+    elif kind == "map_manifest":
+        report = verify_map_manifest(input_path, payload)
     elif kind == "idealized_summary":
         report = verify_idealized_summary(input_path, payload)
     else:  # pragma: no cover

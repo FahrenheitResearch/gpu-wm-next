@@ -43,6 +43,7 @@ add_library(
   src/dycore/idealized_cases.cpp
   src/dycore/dry_transport.cu
   src/ingest/source_catalog.cpp
+  src/io/plan_view_output.cpp
   src/obsops/screen_obsops.cpp
   src/surface/surface_layer_closure.cpp
   src/surface/surface_layer_exchange.cpp
@@ -92,6 +93,7 @@ gwm_add_test(test_scalar_halo_buffers tests/unit/test_scalar_halo_buffers.cpp)
 gwm_add_test(test_mpi_runtime tests/unit/test_mpi_runtime.cpp)
 gwm_add_test(test_source_catalog tests/unit/test_source_catalog.cpp)
 gwm_add_test(test_ingest_contracts tests/unit/test_ingest_contracts.cpp)
+gwm_add_test(test_plan_view_output tests/unit/test_plan_view_output.cpp)
 gwm_add_test(test_dry_diagnostics tests/unit/test_dry_diagnostics.cpp)
 gwm_add_test(test_dry_fast_modes tests/unit/test_dry_fast_modes.cpp)
 gwm_add_test(test_dry_momentum_flux tests/unit/test_dry_momentum_flux.cpp)

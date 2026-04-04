@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -59,6 +60,10 @@ def default_driver_path(repo_root: Path) -> Path:
     return repo_root / "build-ninja" / f"gwm_idealized_driver{suffix}"
 
 
+def default_render_script(repo_root: Path) -> Path:
+    return repo_root / "tools" / "verify" / "render_plan_view_maps.py"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run a gpu-wm-next idealized dry case from a simple case YAML."
@@ -76,6 +81,29 @@ def main() -> None:
         default=None,
         help="Optional explicit summary output path",
     )
+    parser.add_argument(
+        "--plan-view-json",
+        type=Path,
+        default=None,
+        help="Optional explicit plan-view output path",
+    )
+    parser.add_argument(
+        "--plan-view-level",
+        type=int,
+        default=None,
+        help="Optional vertical level index for plan-view output",
+    )
+    parser.add_argument(
+        "--render-maps",
+        action="store_true",
+        help="Render actual map images from the emitted plan-view JSON",
+    )
+    parser.add_argument(
+        "--map-output-dir",
+        type=Path,
+        default=None,
+        help="Optional explicit directory for rendered map products",
+    )
     parser.add_argument("--steps", type=int, default=None)
     parser.add_argument("--dt", type=float, default=None)
     parser.add_argument("--fast-substeps", type=int, default=None)
@@ -92,6 +120,9 @@ def main() -> None:
         raise ValueError("Expected grid/terrain/initialization sections to be mappings")
 
     summary_json = args.summary_json or args.case_file.with_suffix(".summary.json")
+    plan_view_json = args.plan_view_json
+    if args.render_maps and plan_view_json is None:
+        plan_view_json = args.case_file.with_suffix(".plan_view.json")
 
     cmd = [str(driver), "--case", str(init.get("kind", "density_current"))]
     for key in ("nx", "ny", "nz", "dx", "dy", "z_top"):
@@ -132,6 +163,10 @@ def main() -> None:
         cmd.extend(["--fast-substeps", str(args.fast_substeps)])
 
     cmd.extend(["--summary-json", str(summary_json)])
+    if plan_view_json is not None:
+        cmd.extend(["--plan-view-json", str(plan_view_json)])
+    if args.plan_view_level is not None:
+        cmd.extend(["--plan-view-level", str(args.plan_view_level)])
 
     print(f"Running idealized case: {args.case_file}")
     print(f"Driver: {driver}")
@@ -143,6 +178,27 @@ def main() -> None:
     else:
         subprocess.run(cmd, check=True)
     print(f"Summary written to: {summary_json}")
+
+    if args.render_maps:
+        if plan_view_json is None:
+            raise RuntimeError("render-maps requested without a plan-view output path")
+        render_script = default_render_script(repo_root)
+        render_cmd = [
+            sys.executable,
+            str(render_script),
+            "--input",
+            str(plan_view_json),
+            "--title-prefix",
+            str(init.get("kind", "idealized")),
+        ]
+        if args.map_output_dir is not None:
+            render_cmd.extend(["--output-dir", str(args.map_output_dir)])
+        print("Rendering maps:")
+        print(" ".join(render_cmd))
+        subprocess.run(render_cmd, check=True)
+
+    if plan_view_json is not None:
+        print(f"Plan-view JSON written to: {plan_view_json}")
 
 
 if __name__ == "__main__":

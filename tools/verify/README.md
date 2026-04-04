@@ -4,9 +4,10 @@ This directory owns successor-model validation and product-side JSON plumbing.
 It validates contracts and current idealized outputs; it does not replace the
 future diagnostics/plotting stack.
 
-Current entry point:
+Current entry points:
 
 - `run_verification.py`
+- `render_plan_view_maps.py`
 
 ## Supported Inputs
 
@@ -16,6 +17,8 @@ Current entry point:
 - `boundary_cache_stub.json`
 - `checkpoint_stub.json`
 - `product_plan.json`
+- plan-view JSON from `gwm_idealized_driver`
+- `map_manifest.json`
 - idealized driver summary JSON from `run_idealized_case.py`
 
 Each verification run emits a concrete report JSON next to the input by default.
@@ -37,8 +40,10 @@ Idealized side:
 - finite `w_face` extrema
 - derived drift/span metrics
 - explicit bridge to current product support
+- plan-view bundle shape checks
+- rendered image-path checks from `map_manifest.json`
 
-## Example
+## Examples
 
 Verify a prepared-case manifest:
 
@@ -54,15 +59,29 @@ python tools/verify/run_verification.py `
   --input cases/idealized/warm_bubble.summary.json
 ```
 
+Verify a rendered map manifest:
+
+```powershell
+python tools/verify/run_verification.py `
+  --input cases/idealized/warm_bubble.plan_view_maps/map_manifest.json
+```
+
+Render plan-view maps directly:
+
+```powershell
+python tools/verify/render_plan_view_maps.py `
+  --input cases/idealized/warm_bubble.plan_view.json
+```
+
 ## External Tooling Boundary
 
-This script is intentionally JSON-first and orchestration-oriented:
+These scripts are intentionally JSON-first and orchestration-oriented:
 
 - no GRIB decode
 - no runtime-core field mutation
-- no plotting implementation here
+- plotting here is limited to the current plan-view JSON product
 
-It is designed to hand off later to:
+They are designed to hand off later to:
 
 - `wrf-rust` for diagnostics / verification
 - `wrf-rust-plots` for plots / panels / map products

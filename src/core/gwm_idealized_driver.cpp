@@ -10,6 +10,7 @@
 #include "gwm/dycore/dry_core.hpp"
 #include "gwm/dycore/dry_diagnostics.hpp"
 #include "gwm/dycore/idealized_cases.hpp"
+#include "gwm/io/plan_view_output.hpp"
 
 namespace {
 
@@ -25,6 +26,8 @@ struct DriverOptions {
   gwm::dycore::DryStepperConfig step_config{};
   int steps = 10;
   std::string summary_json_path;
+  std::string plan_view_json_path;
+  int plan_view_level = 0;
 };
 
 bool parse_bool(const std::string& value) {
@@ -174,6 +177,10 @@ void parse_args(int argc, char** argv, DriverOptions& opts) {
           parse_value<float>(require_value(i, argc, argv));
     } else if (arg == "--summary-json") {
       opts.summary_json_path = require_value(i, argc, argv);
+    } else if (arg == "--plan-view-json") {
+      opts.plan_view_json_path = require_value(i, argc, argv);
+    } else if (arg == "--plan-view-level") {
+      opts.plan_view_level = parse_value<int>(require_value(i, argc, argv));
     } else {
       throw std::runtime_error("Unknown argument: " + arg);
     }
@@ -253,6 +260,13 @@ int main(int argc, char** argv) {
                                  opts.summary_json_path);
       }
       out << json << "\n";
+    }
+
+    if (!opts.plan_view_json_path.empty()) {
+      const auto plan_view = gwm::io::extract_dry_plan_view(
+          states, domain.layout, domain.metrics, opts.case_kind, opts.steps,
+          opts.step_config.dt, opts.plan_view_level);
+      gwm::io::write_plan_view_bundle_json(plan_view, opts.plan_view_json_path);
     }
     return EXIT_SUCCESS;
   } catch (const std::exception& ex) {
