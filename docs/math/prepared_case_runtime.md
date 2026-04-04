@@ -21,7 +21,15 @@ Instead, ingest projects the source atmosphere onto the runtime dry manifold:
 - rebuild tracer masses only after final projected `rho_d`
 
 Prepared-case boundary snapshots use the same balanced conversion before the
- open-boundary strips are applied.
+open-boundary strips are applied.
+
+The current boundary runtime path is intentionally strip-only:
+
+- each rounded stage time caches one balanced boundary projection
+- dry and tracer boundary updaters reuse that cached stage snapshot instead of
+  rebuilding per-tracer whole-domain reference states
+- application writes only the west/east/south/north strips that the open
+  boundary path actually consumes
 
 ## Analysis-State Contract
 
