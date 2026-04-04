@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "gwm/comm/collectives.hpp"
 #include "gwm/comm/halo_exchange.hpp"
 #include "gwm/core/cuda_utils.hpp"
 #include "gwm/core/dry_thermo.hpp"
@@ -438,7 +439,8 @@ void compute_slow_tendencies(
   compute_dry_pressure_fields(rho_fields, rho_theta_fields, pressure_fields);
 
   std::vector<double> theta_sum(static_cast<std::size_t>(metrics.nz), 0.0);
-  std::vector<std::size_t> theta_count(static_cast<std::size_t>(metrics.nz), 0);
+  std::vector<std::uint64_t> theta_count(static_cast<std::size_t>(metrics.nz),
+                                         0);
   for (const auto& state : states) {
     for (int k = 0; k < state.rho_d.nz(); ++k) {
       for (int j = 0; j < state.rho_d.ny(); ++j) {
@@ -446,11 +448,14 @@ void compute_slow_tendencies(
           const real rho = state.rho_d(i, j, k);
           const real theta = state.rho_theta_m(i, j, k) / std::max(rho, 1.0e-6f);
           theta_sum[static_cast<std::size_t>(k)] += static_cast<double>(theta);
-          theta_count[static_cast<std::size_t>(k)] += 1;
+          theta_count[static_cast<std::size_t>(k)] += 1u;
         }
       }
     }
   }
+
+  comm::allreduce_sum_in_place(theta_sum);
+  comm::allreduce_sum_in_place(theta_count);
 
   real* theta_ref_device = nullptr;
   GWM_CUDA_CHECK(
@@ -458,7 +463,8 @@ void compute_slow_tendencies(
   for (int k = 0; k < metrics.nz; ++k) {
     const auto idx = static_cast<std::size_t>(k);
     theta_ref_device[k] = static_cast<real>(
-        theta_sum[idx] / static_cast<double>(std::max<std::size_t>(1, theta_count[idx])));
+        theta_sum[idx] /
+        static_cast<double>(std::max<std::uint64_t>(1u, theta_count[idx])));
   }
 
   for (std::size_t n = 0; n < states.size(); ++n) {

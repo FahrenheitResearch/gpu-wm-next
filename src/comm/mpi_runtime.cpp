@@ -2,11 +2,19 @@
 
 #include "gwm/core/types.hpp"
 
+#include <utility>
+
 #if GWM_HAVE_MPI
 #include <mpi.h>
 #endif
 
 namespace gwm::comm {
+
+namespace {
+
+MpiCartesianContext g_active_context{};
+
+}  // namespace
 
 MpiRuntimeInfo query_mpi_runtime() {
   MpiRuntimeInfo info{};
@@ -123,6 +131,33 @@ MpiCartesianContext make_mpi_cartesian_context(
   return context;
 }
 #endif
+
+void activate_mpi_cartesian_context(MpiCartesianContext context) {
+#if GWM_HAVE_MPI
+  gwm::require(context.active, "Cannot activate an inactive MPI context");
+  if (g_active_context.active) {
+    release_mpi_cartesian_context(g_active_context);
+  }
+  g_active_context = std::move(context);
+#else
+  (void)context;
+  gwm::require(false, "MPI context activation requested without MPI support");
+#endif
+}
+
+void deactivate_mpi_cartesian_context() {
+  if (g_active_context.active) {
+    release_mpi_cartesian_context(g_active_context);
+  }
+}
+
+bool has_active_mpi_cartesian_context() { return g_active_context.active; }
+
+const MpiCartesianContext& active_mpi_cartesian_context() {
+  gwm::require(g_active_context.active,
+               "Active MPI cartesian context requested before activation");
+  return g_active_context;
+}
 
 void release_mpi_cartesian_context(MpiCartesianContext& context) {
 #if GWM_HAVE_MPI

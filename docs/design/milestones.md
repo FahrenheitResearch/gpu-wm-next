@@ -45,6 +45,8 @@
 - next:
   - real MPI-backed halo exchange path against the existing virtual-rank oracle
   - keep `comm/*` as the only MPI/backend-aware runtime layer
+  - use `docs/math/mpi_halo_exchange.md` as the bounded proof/scope note for
+    the transport milestone
   - keep surface/land spine and ingest/boundary-cache work gated behind the
     current milestone decision
 
@@ -65,7 +67,7 @@
 
 ## stage4_scaling
 
-- real MPI halo exchange
+- multi-rank dry regressions and scaling hardening
 - async output hardening
 - 2-8 GPU tuning
 - regression corpus for scaling and restart fidelity

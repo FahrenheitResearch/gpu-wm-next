@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "gwm/comm/mpi_runtime.hpp"
+
 namespace gwm::comm {
 
 namespace {
@@ -27,9 +29,9 @@ FaceHaloShape make_face_halo_shape(const state::FaceField<real>& field,
   return shape;
 }
 
-void HaloExchange::pack_face_x_faces(const state::FaceField<real>& field,
-                                     const domain::SubdomainDescriptor& desc,
-                                     ScalarHaloBuffers& buffers) {
+void pack_face_x_faces_impl(const state::FaceField<real>& field,
+                            const domain::SubdomainDescriptor& desc,
+                            ScalarHaloBuffers& buffers) {
   const auto shape = make_face_halo_shape(field, desc);
   const auto& storage = field.storage();
   std::size_t west_idx = 0;
@@ -51,9 +53,9 @@ void HaloExchange::pack_face_x_faces(const state::FaceField<real>& field,
   }
 }
 
-void HaloExchange::unpack_face_x_faces(state::FaceField<real>& field,
-                                       const domain::SubdomainDescriptor& desc,
-                                       const ScalarHaloBuffers& buffers) {
+void unpack_face_x_faces_impl(state::FaceField<real>& field,
+                              const domain::SubdomainDescriptor& desc,
+                              const ScalarHaloBuffers& buffers) {
   const auto shape = make_face_halo_shape(field, desc);
   auto& storage = field.storage();
   std::size_t west_idx = 0;
@@ -70,9 +72,9 @@ void HaloExchange::unpack_face_x_faces(state::FaceField<real>& field,
   }
 }
 
-void HaloExchange::pack_face_y_faces(const state::FaceField<real>& field,
-                                     const domain::SubdomainDescriptor& desc,
-                                     ScalarHaloBuffers& buffers) {
+void pack_face_y_faces_impl(const state::FaceField<real>& field,
+                            const domain::SubdomainDescriptor& desc,
+                            ScalarHaloBuffers& buffers) {
   const auto shape = make_face_halo_shape(field, desc);
   const auto& storage = field.storage();
   std::size_t south_idx = 0;
@@ -94,9 +96,9 @@ void HaloExchange::pack_face_y_faces(const state::FaceField<real>& field,
   }
 }
 
-void HaloExchange::unpack_face_y_faces(state::FaceField<real>& field,
-                                       const domain::SubdomainDescriptor& desc,
-                                       const ScalarHaloBuffers& buffers) {
+void unpack_face_y_faces_impl(state::FaceField<real>& field,
+                              const domain::SubdomainDescriptor& desc,
+                              const ScalarHaloBuffers& buffers) {
   const auto shape = make_face_halo_shape(field, desc);
   auto& storage = field.storage();
   std::size_t south_idx = 0;
@@ -114,207 +116,48 @@ void HaloExchange::unpack_face_y_faces(state::FaceField<real>& field,
 }
 
 #if GWM_HAVE_MPI
-MPI_Datatype mpi_real_datatype() { return MPI_FLOAT; }
-
-void fill_recv_buffer(std::vector<real>& buffer) {
-  std::fill(buffer.begin(), buffer.end(), 0.0f);
-}
-
-void mpi_sendrecv(const std::vector<real>& send_buffer, int dest_rank, int send_tag,
-                  std::vector<real>& recv_buffer, int source_rank, int recv_tag,
-                  const MpiCartesianContext& context) {
-  fill_recv_buffer(recv_buffer);
+void mpi_sendrecv(const std::vector<real>& send_buffer, int dest_rank,
+                  int send_tag, std::vector<real>& recv_buffer, int source_rank,
+                  int recv_tag, const MpiCartesianContext& context) {
+  std::fill(recv_buffer.begin(), recv_buffer.end(), 0.0f);
   const int mpi_dest = dest_rank >= 0 ? dest_rank : MPI_PROC_NULL;
   const int mpi_source = source_rank >= 0 ? source_rank : MPI_PROC_NULL;
   MPI_Sendrecv(send_buffer.empty() ? nullptr : send_buffer.data(),
-               static_cast<int>(send_buffer.size()), mpi_real_datatype(),
-               mpi_dest, send_tag,
-               recv_buffer.empty() ? nullptr : recv_buffer.data(),
-               static_cast<int>(recv_buffer.size()), mpi_real_datatype(),
-               mpi_source, recv_tag, context.cart_comm, MPI_STATUS_IGNORE);
+               static_cast<int>(send_buffer.size()), MPI_FLOAT, mpi_dest,
+               send_tag, recv_buffer.empty() ? nullptr : recv_buffer.data(),
+               static_cast<int>(recv_buffer.size()), MPI_FLOAT, mpi_source,
+               recv_tag, context.cart_comm, MPI_STATUS_IGNORE);
 }
 #endif
 
 void require_active_mpi_context(const MpiCartesianContext& context,
                                 const domain::SubdomainDescriptor& desc) {
   gwm::require(context.active, "MPI halo exchange requires an active context");
-  gwm::require(context.world_rank == desc.rank && context.coord_x == desc.coord_x &&
-                   context.coord_y == desc.coord_y &&
-                   context.ranks_x == desc.ranks_x &&
-                   context.ranks_y == desc.ranks_y &&
-                   context.periodic_x == desc.periodic_x &&
-                   context.periodic_y == desc.periodic_y,
-               "MPI cartesian context does not match the local descriptor");
-}
-
-}  // namespace
-
-ScalarHaloBuffers HaloExchange::allocate_scalar_buffers(
-    const ScalarHaloExchangePlan& plan) {
-  ScalarHaloBuffers buffers{};
-  buffers.west_send.resize(plan.x_face_count);
-  buffers.east_send.resize(plan.x_face_count);
-  buffers.south_send.resize(plan.y_face_count);
-  buffers.north_send.resize(plan.y_face_count);
-  buffers.west_recv.resize(plan.x_face_count);
-  buffers.east_recv.resize(plan.x_face_count);
-  buffers.south_recv.resize(plan.y_face_count);
-  buffers.north_recv.resize(plan.y_face_count);
-  return buffers;
-}
-
-ScalarHaloBuffers HaloExchange::allocate_face_buffers(
-    const state::FaceField<real>& field,
-    const domain::SubdomainDescriptor& desc) {
-  auto plan = make_scalar_halo_exchange_plan(desc, CartesianNeighborRanks{});
-  const auto shape = make_face_halo_shape(field, desc);
-  plan.x_face_count = shape.x_face_count;
-  plan.y_face_count = shape.y_face_count;
-  return allocate_scalar_buffers(plan);
-}
-
-void HaloExchange::pack_scalar_x_faces(const state::Field3D<real>& field,
-                                       const domain::SubdomainDescriptor& desc,
-                                       ScalarHaloBuffers& buffers) {
-  std::size_t west_idx = 0;
-  std::size_t east_idx = 0;
-  for (int k = 0; k < desc.nz; ++k) {
-    for (int j = 0; j < desc.ny_local(); ++j) {
-      for (int h = 0; h < desc.halo; ++h) {
-        buffers.west_send[west_idx++] = field(h, j, k);
-        buffers.east_send[east_idx++] = field(desc.nx_local() - desc.halo + h, j, k);
-      }
-    }
-  }
-}
-
-void HaloExchange::unpack_scalar_x_faces(state::Field3D<real>& field,
-                                         const domain::SubdomainDescriptor& desc,
-                                         const ScalarHaloBuffers& buffers) {
-  std::size_t west_idx = 0;
-  std::size_t east_idx = 0;
-  for (int k = 0; k < desc.nz; ++k) {
-    for (int j = 0; j < desc.ny_local(); ++j) {
-      for (int h = 0; h < desc.halo; ++h) {
-        field(-desc.halo + h, j, k) = buffers.west_recv[west_idx++];
-        field(desc.nx_local() + h, j, k) = buffers.east_recv[east_idx++];
-      }
-    }
-  }
-}
-
-void HaloExchange::pack_scalar_y_faces(const state::Field3D<real>& field,
-                                       const domain::SubdomainDescriptor& desc,
-                                       ScalarHaloBuffers& buffers) {
-  std::size_t south_idx = 0;
-  std::size_t north_idx = 0;
-  for (int k = 0; k < desc.nz; ++k) {
-    for (int h = 0; h < desc.halo; ++h) {
-      for (int i = -desc.halo; i < desc.nx_local() + desc.halo; ++i) {
-        buffers.south_send[south_idx++] = field(i, h, k);
-        buffers.north_send[north_idx++] =
-            field(i, desc.ny_local() - desc.halo + h, k);
-      }
-    }
-  }
-}
-
-void HaloExchange::unpack_scalar_y_faces(state::Field3D<real>& field,
-                                         const domain::SubdomainDescriptor& desc,
-                                         const ScalarHaloBuffers& buffers) {
-  std::size_t south_idx = 0;
-  std::size_t north_idx = 0;
-  for (int k = 0; k < desc.nz; ++k) {
-    for (int h = 0; h < desc.halo; ++h) {
-      for (int i = -desc.halo; i < desc.nx_local() + desc.halo; ++i) {
-        field(i, -desc.halo + h, k) = buffers.south_recv[south_idx++];
-        field(i, desc.ny_local() + h, k) = buffers.north_recv[north_idx++];
-      }
-    }
-  }
-}
-
-void HaloExchange::exchange_scalar(
-    std::vector<state::Field3D<real>>& fields,
-    const std::vector<domain::SubdomainDescriptor>& layout) {
-  gwm::require(fields.size() == layout.size(),
-               "Field/layout size mismatch in exchange_scalar");
-
-  std::vector<ScalarHaloExchangePlan> plans;
-  plans.reserve(layout.size());
-  std::vector<ScalarHaloBuffers> buffers;
-  buffers.reserve(layout.size());
-  for (const auto& desc : layout) {
-    plans.push_back(make_scalar_halo_exchange_plan(layout, desc));
-    buffers.push_back(allocate_scalar_buffers(plans.back()));
-  }
-
-  for (std::size_t n = 0; n < layout.size(); ++n) {
-    pack_scalar_x_faces(fields[n], layout[n], buffers[n]);
-  }
-
-  for (std::size_t n = 0; n < layout.size(); ++n) {
-    const auto& neighbors = plans[n].neighbors;
-    if (neighbors.west >= 0) {
-      buffers[n].west_recv =
-          buffers[static_cast<std::size_t>(neighbors.west)].east_send;
-    }
-    if (neighbors.east >= 0) {
-      buffers[n].east_recv =
-          buffers[static_cast<std::size_t>(neighbors.east)].west_send;
-    }
-    unpack_scalar_x_faces(fields[n], layout[n], buffers[n]);
-  }
-
-  for (std::size_t n = 0; n < layout.size(); ++n) {
-    pack_scalar_y_faces(fields[n], layout[n], buffers[n]);
-  }
-
-  for (std::size_t n = 0; n < layout.size(); ++n) {
-    const auto& neighbors = plans[n].neighbors;
-    if (neighbors.south >= 0) {
-      buffers[n].south_recv =
-          buffers[static_cast<std::size_t>(neighbors.south)].north_send;
-    }
-    if (neighbors.north >= 0) {
-      buffers[n].north_recv =
-          buffers[static_cast<std::size_t>(neighbors.north)].south_send;
-    }
-    unpack_scalar_y_faces(fields[n], layout[n], buffers[n]);
-  }
-}
-
-void HaloExchange::exchange_scalar(state::Field3D<real>& field,
-                                   const domain::SubdomainDescriptor& desc,
-                                   const MpiCartesianContext& context) {
-  require_active_mpi_context(context, desc);
-  const auto plan = make_scalar_halo_exchange_plan(desc, context.neighbors);
-  auto buffers = allocate_scalar_buffers(plan);
-  pack_scalar_x_faces(field, desc, buffers);
-#if GWM_HAVE_MPI
-  mpi_sendrecv(buffers.west_send, context.neighbors.west, 100, buffers.east_recv,
-               context.neighbors.east, 100, context);
-  mpi_sendrecv(buffers.east_send, context.neighbors.east, 101, buffers.west_recv,
-               context.neighbors.west, 101, context);
-#else
-  (void)context;
-  gwm::require(false, "MPI scalar halo exchange called without MPI support");
-#endif
-  unpack_scalar_x_faces(field, desc, buffers);
-
-  pack_scalar_y_faces(field, desc, buffers);
-#if GWM_HAVE_MPI
-  mpi_sendrecv(buffers.south_send, context.neighbors.south, 110,
-               buffers.north_recv, context.neighbors.north, 110, context);
-  mpi_sendrecv(buffers.north_send, context.neighbors.north, 111,
-               buffers.south_recv, context.neighbors.south, 111, context);
-#endif
-  unpack_scalar_y_faces(field, desc, buffers);
+  gwm::require(desc.rank == context.world_rank,
+               "Local subdomain rank must match active MPI world rank");
+  gwm::require(desc.coord_x == context.coord_x && desc.coord_y == context.coord_y,
+               "Local subdomain coordinates must match active MPI cartesian context");
+  gwm::require(desc.ranks_x == context.ranks_x &&
+                   desc.ranks_y == context.ranks_y,
+               "Local subdomain rank dimensions must match active MPI context");
+  gwm::require(desc.periodic_x == context.periodic_x &&
+                   desc.periodic_y == context.periodic_y,
+               "Local subdomain periodicity must match active MPI context");
 }
 
 void exchange_face_impl(
     const std::vector<state::FaceField<real>*>& fields,
     const std::vector<domain::SubdomainDescriptor>& layout) {
+  if (has_active_mpi_cartesian_context()) {
+    gwm::require(fields.size() == 1 && layout.size() == 1,
+                 "Active MPI face halo exchange expects one local field and one "
+                 "local descriptor");
+    gwm::require(fields.front() != nullptr, "Null field pointer in exchange_face");
+    HaloExchange::exchange_face(*fields.front(), layout.front(),
+                                active_mpi_cartesian_context());
+    return;
+  }
+
   gwm::require(fields.size() == layout.size(),
                "Field/layout size mismatch in exchange_face");
   if (fields.empty()) {
@@ -331,15 +174,15 @@ void exchange_face_impl(
     gwm::require(fields[n]->orientation() == reference_orientation,
                  "Face orientation mismatch in exchange_face");
     plans.push_back(make_scalar_halo_exchange_plan(layout, layout[n]));
+    auto plan = plans.back();
     const auto shape = make_face_halo_shape(*fields[n], layout[n]);
-    ScalarHaloExchangePlan plan = plans.back();
     plan.x_face_count = shape.x_face_count;
     plan.y_face_count = shape.y_face_count;
     buffers.push_back(HaloExchange::allocate_scalar_buffers(plan));
   }
 
   for (std::size_t n = 0; n < layout.size(); ++n) {
-    pack_face_x_faces(*fields[n], layout[n], buffers[n]);
+    pack_face_x_faces_impl(*fields[n], layout[n], buffers[n]);
   }
   for (std::size_t n = 0; n < layout.size(); ++n) {
     const auto& neighbors = plans[n].neighbors;
@@ -351,11 +194,11 @@ void exchange_face_impl(
       buffers[n].east_recv =
           buffers[static_cast<std::size_t>(neighbors.east)].west_send;
     }
-    unpack_face_x_faces(*fields[n], layout[n], buffers[n]);
+    unpack_face_x_faces_impl(*fields[n], layout[n], buffers[n]);
   }
 
   for (std::size_t n = 0; n < layout.size(); ++n) {
-    pack_face_y_faces(*fields[n], layout[n], buffers[n]);
+    pack_face_y_faces_impl(*fields[n], layout[n], buffers[n]);
   }
   for (std::size_t n = 0; n < layout.size(); ++n) {
     const auto& neighbors = plans[n].neighbors;
@@ -367,47 +210,24 @@ void exchange_face_impl(
       buffers[n].north_recv =
           buffers[static_cast<std::size_t>(neighbors.north)].south_send;
     }
-    unpack_face_y_faces(*fields[n], layout[n], buffers[n]);
+    unpack_face_y_faces_impl(*fields[n], layout[n], buffers[n]);
   }
-}
-
-void HaloExchange::exchange_face(state::FaceField<real>& field,
-                                 const domain::SubdomainDescriptor& desc,
-                                 const MpiCartesianContext& context) {
-  require_active_mpi_context(context, desc);
-
-  ScalarHaloExchangePlan plan =
-      make_scalar_halo_exchange_plan(desc, context.neighbors);
-  const auto shape = make_face_halo_shape(field, desc);
-  plan.x_face_count = shape.x_face_count;
-  plan.y_face_count = shape.y_face_count;
-  auto buffers = allocate_scalar_buffers(plan);
-
-  pack_face_x_faces(field, desc, buffers);
-#if GWM_HAVE_MPI
-  mpi_sendrecv(buffers.west_send, context.neighbors.west, 120, buffers.east_recv,
-               context.neighbors.east, 120, context);
-  mpi_sendrecv(buffers.east_send, context.neighbors.east, 121, buffers.west_recv,
-               context.neighbors.west, 121, context);
-#else
-  (void)context;
-  gwm::require(false, "MPI face halo exchange called without MPI support");
-#endif
-  unpack_face_x_faces(field, desc, buffers);
-
-  pack_face_y_faces(field, desc, buffers);
-#if GWM_HAVE_MPI
-  mpi_sendrecv(buffers.south_send, context.neighbors.south, 130,
-               buffers.north_recv, context.neighbors.north, 130, context);
-  mpi_sendrecv(buffers.north_send, context.neighbors.north, 131,
-               buffers.south_recv, context.neighbors.south, 131, context);
-#endif
-  unpack_face_y_faces(field, desc, buffers);
 }
 
 void synchronize_face_owned_interfaces_impl(
     const std::vector<state::FaceField<real>*>& fields,
     const std::vector<domain::SubdomainDescriptor>& layout) {
+  if (has_active_mpi_cartesian_context()) {
+    gwm::require(fields.size() == 1 && layout.size() == 1,
+                 "Active MPI face synchronization expects one local field and "
+                 "one local descriptor");
+    gwm::require(fields.front() != nullptr,
+                 "Null field pointer in synchronize_owned_face_interfaces");
+    HaloExchange::synchronize_owned_face_interfaces(
+        *fields.front(), layout.front(), active_mpi_cartesian_context());
+    return;
+  }
+
   gwm::require(fields.size() == layout.size(),
                "Field/layout size mismatch in synchronize_owned_face_interfaces");
   if (fields.empty()) {
@@ -464,6 +284,181 @@ void synchronize_face_owned_interfaces_impl(
   }
 }
 
+}  // namespace
+
+ScalarHaloBuffers HaloExchange::allocate_scalar_buffers(
+    const ScalarHaloExchangePlan& plan) {
+  ScalarHaloBuffers buffers{};
+  buffers.west_send.resize(plan.x_face_count);
+  buffers.east_send.resize(plan.x_face_count);
+  buffers.south_send.resize(plan.y_face_count);
+  buffers.north_send.resize(plan.y_face_count);
+  buffers.west_recv.resize(plan.x_face_count);
+  buffers.east_recv.resize(plan.x_face_count);
+  buffers.south_recv.resize(plan.y_face_count);
+  buffers.north_recv.resize(plan.y_face_count);
+  return buffers;
+}
+
+ScalarHaloBuffers HaloExchange::allocate_face_buffers(
+    const state::FaceField<real>& field,
+    const domain::SubdomainDescriptor& desc) {
+  auto plan = make_scalar_halo_exchange_plan(desc, CartesianNeighborRanks{});
+  const auto shape = make_face_halo_shape(field, desc);
+  plan.x_face_count = shape.x_face_count;
+  plan.y_face_count = shape.y_face_count;
+  return allocate_scalar_buffers(plan);
+}
+
+void HaloExchange::pack_scalar_x_faces(const state::Field3D<real>& field,
+                                       const domain::SubdomainDescriptor& desc,
+                                       ScalarHaloBuffers& buffers) {
+  std::size_t west_idx = 0;
+  std::size_t east_idx = 0;
+  for (int k = 0; k < desc.nz; ++k) {
+    for (int j = 0; j < desc.ny_local(); ++j) {
+      for (int h = 0; h < desc.halo; ++h) {
+        buffers.west_send[west_idx++] = field(h, j, k);
+        buffers.east_send[east_idx++] =
+            field(desc.nx_local() - desc.halo + h, j, k);
+      }
+    }
+  }
+}
+
+void HaloExchange::unpack_scalar_x_faces(state::Field3D<real>& field,
+                                         const domain::SubdomainDescriptor& desc,
+                                         const ScalarHaloBuffers& buffers) {
+  std::size_t west_idx = 0;
+  std::size_t east_idx = 0;
+  for (int k = 0; k < desc.nz; ++k) {
+    for (int j = 0; j < desc.ny_local(); ++j) {
+      for (int h = 0; h < desc.halo; ++h) {
+        field(-desc.halo + h, j, k) = buffers.west_recv[west_idx++];
+        field(desc.nx_local() + h, j, k) = buffers.east_recv[east_idx++];
+      }
+    }
+  }
+}
+
+void HaloExchange::pack_scalar_y_faces(const state::Field3D<real>& field,
+                                       const domain::SubdomainDescriptor& desc,
+                                       ScalarHaloBuffers& buffers) {
+  std::size_t south_idx = 0;
+  std::size_t north_idx = 0;
+  for (int k = 0; k < desc.nz; ++k) {
+    for (int h = 0; h < desc.halo; ++h) {
+      for (int i = -desc.halo; i < desc.nx_local() + desc.halo; ++i) {
+        buffers.south_send[south_idx++] = field(i, h, k);
+        buffers.north_send[north_idx++] =
+            field(i, desc.ny_local() - desc.halo + h, k);
+      }
+    }
+  }
+}
+
+void HaloExchange::unpack_scalar_y_faces(state::Field3D<real>& field,
+                                         const domain::SubdomainDescriptor& desc,
+                                         const ScalarHaloBuffers& buffers) {
+  std::size_t south_idx = 0;
+  std::size_t north_idx = 0;
+  for (int k = 0; k < desc.nz; ++k) {
+    for (int h = 0; h < desc.halo; ++h) {
+      for (int i = -desc.halo; i < desc.nx_local() + desc.halo; ++i) {
+        field(i, -desc.halo + h, k) = buffers.south_recv[south_idx++];
+        field(i, desc.ny_local() + h, k) = buffers.north_recv[north_idx++];
+      }
+    }
+  }
+}
+
+void HaloExchange::pack_face_x_faces(const state::FaceField<real>& field,
+                                     const domain::SubdomainDescriptor& desc,
+                                     ScalarHaloBuffers& buffers) {
+  pack_face_x_faces_impl(field, desc, buffers);
+}
+
+void HaloExchange::unpack_face_x_faces(state::FaceField<real>& field,
+                                       const domain::SubdomainDescriptor& desc,
+                                       const ScalarHaloBuffers& buffers) {
+  unpack_face_x_faces_impl(field, desc, buffers);
+}
+
+void HaloExchange::pack_face_y_faces(const state::FaceField<real>& field,
+                                     const domain::SubdomainDescriptor& desc,
+                                     ScalarHaloBuffers& buffers) {
+  pack_face_y_faces_impl(field, desc, buffers);
+}
+
+void HaloExchange::unpack_face_y_faces(state::FaceField<real>& field,
+                                       const domain::SubdomainDescriptor& desc,
+                                       const ScalarHaloBuffers& buffers) {
+  unpack_face_y_faces_impl(field, desc, buffers);
+}
+
+void HaloExchange::exchange_scalar(state::Field3D<real>& field,
+                                   const domain::SubdomainDescriptor& desc,
+                                   const MpiCartesianContext& context) {
+  require_active_mpi_context(context, desc);
+  const auto plan = make_scalar_halo_exchange_plan(desc, context.neighbors);
+  auto buffers = allocate_scalar_buffers(plan);
+
+  pack_scalar_x_faces(field, desc, buffers);
+#if GWM_HAVE_MPI
+  mpi_sendrecv(buffers.west_send, context.neighbors.west, 100,
+               buffers.east_recv, context.neighbors.east, 100, context);
+  mpi_sendrecv(buffers.east_send, context.neighbors.east, 101,
+               buffers.west_recv, context.neighbors.west, 101, context);
+#else
+  (void)context;
+  gwm::require(false, "MPI scalar halo exchange called without MPI support");
+#endif
+  unpack_scalar_x_faces(field, desc, buffers);
+
+  pack_scalar_y_faces(field, desc, buffers);
+#if GWM_HAVE_MPI
+  mpi_sendrecv(buffers.south_send, context.neighbors.south, 110,
+               buffers.north_recv, context.neighbors.north, 110, context);
+  mpi_sendrecv(buffers.north_send, context.neighbors.north, 111,
+               buffers.south_recv, context.neighbors.south, 111, context);
+#endif
+  unpack_scalar_y_faces(field, desc, buffers);
+}
+
+void HaloExchange::exchange_face(state::FaceField<real>& field,
+                                 const domain::SubdomainDescriptor& desc,
+                                 const MpiCartesianContext& context) {
+  require_active_mpi_context(context, desc);
+
+  ScalarHaloExchangePlan plan =
+      make_scalar_halo_exchange_plan(desc, context.neighbors);
+  const auto shape = make_face_halo_shape(field, desc);
+  plan.x_face_count = shape.x_face_count;
+  plan.y_face_count = shape.y_face_count;
+  auto buffers = allocate_scalar_buffers(plan);
+
+  pack_face_x_faces(field, desc, buffers);
+#if GWM_HAVE_MPI
+  mpi_sendrecv(buffers.west_send, context.neighbors.west, 120,
+               buffers.east_recv, context.neighbors.east, 120, context);
+  mpi_sendrecv(buffers.east_send, context.neighbors.east, 121,
+               buffers.west_recv, context.neighbors.west, 121, context);
+#else
+  (void)context;
+  gwm::require(false, "MPI face halo exchange called without MPI support");
+#endif
+  unpack_face_x_faces(field, desc, buffers);
+
+  pack_face_y_faces(field, desc, buffers);
+#if GWM_HAVE_MPI
+  mpi_sendrecv(buffers.south_send, context.neighbors.south, 130,
+               buffers.north_recv, context.neighbors.north, 130, context);
+  mpi_sendrecv(buffers.north_send, context.neighbors.north, 131,
+               buffers.south_recv, context.neighbors.south, 131, context);
+#endif
+  unpack_face_y_faces(field, desc, buffers);
+}
+
 void HaloExchange::synchronize_owned_face_interfaces(
     state::FaceField<real>& field, const domain::SubdomainDescriptor& desc,
     const MpiCartesianContext& context) {
@@ -497,10 +492,10 @@ void HaloExchange::synchronize_owned_face_interfaces(
         buffers.east_send[east_idx++] = storage(desc.nx_local(), j, k);
       }
     }
-    mpi_sendrecv(buffers.west_send, context.neighbors.west, 140, buffers.west_recv,
-                 context.neighbors.west, 141, context);
-    mpi_sendrecv(buffers.east_send, context.neighbors.east, 141, buffers.east_recv,
-                 context.neighbors.east, 140, context);
+    mpi_sendrecv(buffers.west_send, context.neighbors.west, 140,
+                 buffers.west_recv, context.neighbors.west, 141, context);
+    mpi_sendrecv(buffers.east_send, context.neighbors.east, 141,
+                 buffers.east_recv, context.neighbors.east, 140, context);
     west_idx = 0;
     east_idx = 0;
     if (context.neighbors.west >= 0) {
@@ -563,6 +558,65 @@ void HaloExchange::synchronize_owned_face_interfaces(
   gwm::require(false,
                "MPI face-interface synchronization called without MPI support");
 #endif
+}
+
+void HaloExchange::exchange_scalar(
+    std::vector<state::Field3D<real>>& fields,
+    const std::vector<domain::SubdomainDescriptor>& layout) {
+  if (has_active_mpi_cartesian_context()) {
+    gwm::require(fields.size() == 1 && layout.size() == 1,
+                 "Active MPI scalar halo exchange expects one local field and "
+                 "one local descriptor");
+    HaloExchange::exchange_scalar(fields.front(), layout.front(),
+                                  active_mpi_cartesian_context());
+    return;
+  }
+
+  gwm::require(fields.size() == layout.size(),
+               "Field/layout size mismatch in exchange_scalar");
+
+  std::vector<ScalarHaloExchangePlan> plans;
+  plans.reserve(layout.size());
+  std::vector<ScalarHaloBuffers> buffers;
+  buffers.reserve(layout.size());
+  for (const auto& desc : layout) {
+    plans.push_back(make_scalar_halo_exchange_plan(layout, desc));
+    buffers.push_back(allocate_scalar_buffers(plans.back()));
+  }
+
+  for (std::size_t n = 0; n < layout.size(); ++n) {
+    pack_scalar_x_faces(fields[n], layout[n], buffers[n]);
+  }
+
+  for (std::size_t n = 0; n < layout.size(); ++n) {
+    const auto& neighbors = plans[n].neighbors;
+    if (neighbors.west >= 0) {
+      buffers[n].west_recv =
+          buffers[static_cast<std::size_t>(neighbors.west)].east_send;
+    }
+    if (neighbors.east >= 0) {
+      buffers[n].east_recv =
+          buffers[static_cast<std::size_t>(neighbors.east)].west_send;
+    }
+    unpack_scalar_x_faces(fields[n], layout[n], buffers[n]);
+  }
+
+  for (std::size_t n = 0; n < layout.size(); ++n) {
+    pack_scalar_y_faces(fields[n], layout[n], buffers[n]);
+  }
+
+  for (std::size_t n = 0; n < layout.size(); ++n) {
+    const auto& neighbors = plans[n].neighbors;
+    if (neighbors.south >= 0) {
+      buffers[n].south_recv =
+          buffers[static_cast<std::size_t>(neighbors.south)].north_send;
+    }
+    if (neighbors.north >= 0) {
+      buffers[n].north_recv =
+          buffers[static_cast<std::size_t>(neighbors.north)].south_send;
+    }
+    unpack_scalar_y_faces(fields[n], layout[n], buffers[n]);
+  }
 }
 
 void HaloExchange::exchange_face(

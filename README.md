@@ -80,7 +80,9 @@ Windows note:
 
 Current checkpoint:
 
-- `12aeedb` passes `31/31` local tests.
-- The dry core is now terrain-aware and internally consistent enough that the
-  likely next bounded milestone is real MPI-backed halo exchange against the
-  existing virtual-rank oracle.
+- The local dry-core suite passes with the terrain-aware fast/slow path in
+  place.
+- The active bounded runtime-core milestone is real MPI-backed halo exchange
+  against the existing virtual-rank oracle.
+- Scope and proof obligations for that milestone live in
+  [docs/math/mpi_halo_exchange.md](docs/math/mpi_halo_exchange.md).

@@ -30,6 +30,7 @@ add_library(
   gwm_core
   STATIC
   src/comm/cartesian_topology.cpp
+  src/comm/collectives.cpp
   src/comm/virtual_rank_layout.cpp
   src/comm/halo_exchange.cpp
   src/comm/mpi_runtime.cpp
@@ -55,6 +56,11 @@ if(GWM_ENABLE_MPI AND MPI_CXX_FOUND)
   target_compile_definitions(gwm_core PUBLIC GWM_HAVE_MPI=1)
 else()
   target_compile_definitions(gwm_core PUBLIC GWM_HAVE_MPI=0)
+endif()
+
+if(GWM_ENABLE_MPI AND MPI_CXX_FOUND AND MPIEXEC_EXECUTABLE
+   AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GwmAddMpiTest.cmake")
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/GwmAddMpiTest.cmake)
 endif()
 
 function(gwm_add_test target)
@@ -122,6 +128,40 @@ gwm_add_test(
   test_terrain_virtual_rank_equivalence
   tests/property/test_terrain_virtual_rank_equivalence.cpp
 )
+
+if(GWM_ENABLE_MPI AND MPI_CXX_FOUND AND MPIEXEC_EXECUTABLE
+   AND COMMAND gwm_add_mpi_test)
+  gwm_add_mpi_test(
+    test_mpi_cartesian_context
+    4
+    tests/unit/test_mpi_cartesian_context.cpp
+  )
+  gwm_add_mpi_test(
+    test_mpi_scalar_halo_exchange
+    4
+    tests/unit/test_mpi_scalar_halo_exchange.cpp
+  )
+  gwm_add_mpi_test(
+    test_mpi_face_halo_exchange
+    4
+    tests/unit/test_mpi_face_halo_exchange.cpp
+  )
+  gwm_add_mpi_test(
+    test_mpi_face_interface_sync
+    4
+    tests/unit/test_mpi_face_interface_sync.cpp
+  )
+  gwm_add_mpi_test(
+    test_mpi_halo_mismatch_rejects
+    4
+    tests/unit/test_mpi_halo_mismatch_rejects.cpp
+  )
+  gwm_add_mpi_test(
+    test_mpi_halo_virtual_rank_equivalence
+    4
+    tests/property/test_mpi_halo_virtual_rank_equivalence.cpp
+  )
+endif()
 gwm_add_test(test_constant_state tests/regression/test_constant_state.cpp)
 gwm_add_test(
   test_dry_constant_state_bundle

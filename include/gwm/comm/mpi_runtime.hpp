@@ -46,6 +46,11 @@ struct MpiCartesianContext {
     const std::vector<domain::SubdomainDescriptor>& layout);
 #endif
 
+void activate_mpi_cartesian_context(MpiCartesianContext context);
+void deactivate_mpi_cartesian_context();
+[[nodiscard]] bool has_active_mpi_cartesian_context();
+[[nodiscard]] const MpiCartesianContext& active_mpi_cartesian_context();
+
 void release_mpi_cartesian_context(MpiCartesianContext& context);
 
 }  // namespace gwm::comm
