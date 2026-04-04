@@ -4,6 +4,7 @@
 #include <limits>
 #include <sstream>
 
+#include "gwm/core/cuda_utils.hpp"
 #include "gwm/state/tracer_registry.hpp"
 
 namespace gwm::core {
@@ -25,9 +26,14 @@ int tracer_index_or_neg(const std::vector<TracerSummary>& tracers,
 RuntimeStateSummary summarize_runtime_state(
     const std::vector<dycore::DryState>& states,
     const std::vector<state::TracerState>& tracers,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics,
     const std::vector<physics::WarmRainSurfaceAccumulation>* accumulations) {
+  GWM_CUDA_CHECK(cudaDeviceSynchronize());
   gwm::require(states.size() == tracers.size(),
                "State/tracer size mismatch in summarize_runtime_state");
+  gwm::require(states.size() == layout.size(),
+               "State/layout size mismatch in summarize_runtime_state");
 
   RuntimeStateSummary summary{};
   summary.dry = dycore::summarize_dry_states(states);
@@ -43,7 +49,7 @@ RuntimeStateSummary summarize_runtime_state(
     tracer.name = spec.name;
     tracer.units = spec.units;
     tracer.positive = spec.positive;
-    tracer.total_mass = 0.0;
+    tracer.column_integrated_sum_kg_m2 = 0.0;
     tracer.mixing_ratio.min = std::numeric_limits<double>::max();
     tracer.mixing_ratio.max = -std::numeric_limits<double>::max();
     summary.tracers.push_back(std::move(tracer));
@@ -53,13 +59,23 @@ RuntimeStateSummary summarize_runtime_state(
   for (std::size_t rank = 0; rank < states.size(); ++rank) {
     gwm::require(tracers[rank].size() == summary.tracers.size(),
                  "Tracer registry mismatch in summarize_runtime_state");
+    const auto& desc = layout[rank];
     for (std::size_t idx = 0; idx < summary.tracers.size(); ++idx) {
       const auto& spec = registry.at(static_cast<int>(idx));
       gwm::require(spec.name ==
                        tracers[rank].registry().at(static_cast<int>(idx)).name,
                    "Tracer ordering mismatch in summarize_runtime_state");
-      summary.tracers[idx].total_mass +=
-          tracers[rank].total_mass(static_cast<int>(idx));
+      const auto& rho_q = tracers[rank].mass(static_cast<int>(idx));
+      for (int k = 0; k < desc.nz; ++k) {
+        for (int j = 0; j < desc.ny_local(); ++j) {
+          for (int i = 0; i < desc.nx_local(); ++i) {
+            const double dz = 1.0 / static_cast<double>(
+                metrics.inv_dz_cell(desc.i_begin + i, desc.j_begin + j, k));
+            summary.tracers[idx].column_integrated_sum_kg_m2 +=
+                static_cast<double>(rho_q(i, j, k)) * dz;
+          }
+        }
+      }
     }
 
     for (int k = 0; k < states[rank].rho_d.nz(); ++k) {
@@ -97,24 +113,29 @@ RuntimeStateSummary summarize_runtime_state(
       tracer_index_or_neg(summary.tracers, state::kRainWaterTracerName);
 
   if (qv_index >= 0) {
-    summary.moisture.vapor_water_mass =
-        summary.tracers[static_cast<std::size_t>(qv_index)].total_mass;
+    summary.moisture.vapor_water_path_sum_kg_m2 =
+        summary.tracers[static_cast<std::size_t>(qv_index)]
+            .column_integrated_sum_kg_m2;
   }
   if (qc_index >= 0) {
-    summary.moisture.cloud_water_mass =
-        summary.tracers[static_cast<std::size_t>(qc_index)].total_mass;
+    summary.moisture.cloud_water_path_sum_kg_m2 =
+        summary.tracers[static_cast<std::size_t>(qc_index)]
+            .column_integrated_sum_kg_m2;
   }
   if (qr_index >= 0) {
-    summary.moisture.rain_water_mass =
-        summary.tracers[static_cast<std::size_t>(qr_index)].total_mass;
+    summary.moisture.rain_water_path_sum_kg_m2 =
+        summary.tracers[static_cast<std::size_t>(qr_index)]
+            .column_integrated_sum_kg_m2;
   }
-  summary.moisture.condensed_water_mass =
-      summary.moisture.cloud_water_mass + summary.moisture.rain_water_mass;
-  summary.moisture.total_water_mass =
-      summary.moisture.vapor_water_mass + summary.moisture.condensed_water_mass;
+  summary.moisture.condensed_water_path_sum_kg_m2 =
+      summary.moisture.cloud_water_path_sum_kg_m2 +
+      summary.moisture.rain_water_path_sum_kg_m2;
+  summary.moisture.total_water_path_sum_kg_m2 =
+      summary.moisture.vapor_water_path_sum_kg_m2 +
+      summary.moisture.condensed_water_path_sum_kg_m2;
   if (accumulations != nullptr) {
     const auto warm_rain_summary =
-        physics::summarize_warm_rain(tracers, accumulations);
+        physics::summarize_warm_rain(tracers, layout, metrics, accumulations);
     summary.moisture.accumulated_surface_precipitation_sum_mm =
         warm_rain_summary.accumulated_surface_precipitation_sum_mm;
     summary.moisture.mean_surface_precipitation_mm =
@@ -179,16 +200,16 @@ std::string runtime_state_summary_to_json(const RuntimeStateSummary& summary,
   oss << indent << "\"w_face\": {\"min\": " << summary.dry.w_face.min
       << ", \"max\": " << summary.dry.w_face.max << "},\n";
   oss << indent << "\"moisture\": {\n";
-  oss << indent << "  \"vapor_water_mass\": "
-      << summary.moisture.vapor_water_mass << ",\n";
-  oss << indent << "  \"cloud_water_mass\": "
-      << summary.moisture.cloud_water_mass << ",\n";
-  oss << indent << "  \"rain_water_mass\": "
-      << summary.moisture.rain_water_mass << ",\n";
-  oss << indent << "  \"condensed_water_mass\": "
-      << summary.moisture.condensed_water_mass << ",\n";
-  oss << indent << "  \"total_water_mass\": "
-      << summary.moisture.total_water_mass << ",\n";
+  oss << indent << "  \"vapor_water_path_sum_kg_m2\": "
+      << summary.moisture.vapor_water_path_sum_kg_m2 << ",\n";
+  oss << indent << "  \"cloud_water_path_sum_kg_m2\": "
+      << summary.moisture.cloud_water_path_sum_kg_m2 << ",\n";
+  oss << indent << "  \"rain_water_path_sum_kg_m2\": "
+      << summary.moisture.rain_water_path_sum_kg_m2 << ",\n";
+  oss << indent << "  \"condensed_water_path_sum_kg_m2\": "
+      << summary.moisture.condensed_water_path_sum_kg_m2 << ",\n";
+  oss << indent << "  \"total_water_path_sum_kg_m2\": "
+      << summary.moisture.total_water_path_sum_kg_m2 << ",\n";
   oss << indent << "  \"accumulated_surface_precipitation_sum_mm\": "
       << summary.moisture.accumulated_surface_precipitation_sum_mm << ",\n";
   oss << indent << "  \"mean_surface_precipitation_mm\": "
@@ -211,7 +232,8 @@ std::string runtime_state_summary_to_json(const RuntimeStateSummary& summary,
     oss << indent << "    \"units\": \"" << tracer.units << "\",\n";
     oss << indent << "    \"positive\": "
         << (tracer.positive ? "true" : "false") << ",\n";
-    oss << indent << "    \"total_mass\": " << tracer.total_mass << ",\n";
+    oss << indent << "    \"column_integrated_sum_kg_m2\": "
+        << tracer.column_integrated_sum_kg_m2 << ",\n";
     oss << indent << "    \"mixing_ratio\": {\"min\": "
         << tracer.mixing_ratio.min << ", \"max\": "
         << tracer.mixing_ratio.max << "}\n";

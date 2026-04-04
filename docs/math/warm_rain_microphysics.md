@@ -113,5 +113,5 @@ Tracer storage remains conservative in `rho_d q_x`.
   - increased `rho_d theta` from condensation heating
   - atmospheric rain plus surface accumulation is conserved under fallout
 - `tests/regression/test_warm_rain_summary_closure.cpp`
-  - runtime summary sidecar preserves total water plus accumulated
-    precipitation closure and nonnegative tracer ranges
+  - runtime summary sidecar preserves column-integrated atmospheric water path
+    plus accumulated precipitation consistency and nonnegative tracer ranges

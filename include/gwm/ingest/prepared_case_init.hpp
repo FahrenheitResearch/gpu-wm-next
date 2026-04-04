@@ -52,7 +52,8 @@ make_warm_rain_tracers_from_analysis(
     const std::vector<dycore::DryState>& dry_states,
     const std::vector<domain::SubdomainDescriptor>& layout,
     const state::TracerRegistry& registry,
-    const std::string& label_prefix = "prepared_case_tracer");
+    const std::string& label_prefix = "prepared_case_tracer",
+    const std::vector<state::TracerState>* baseline_tracers = nullptr);
 
 class PreparedCaseBoundaryUpdater final : public dycore::BoundaryUpdater {
  public:

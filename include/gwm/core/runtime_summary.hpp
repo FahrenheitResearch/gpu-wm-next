@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+#include "gwm/domain/grid_metrics.hpp"
+#include "gwm/domain/subdomain_descriptor.hpp"
 #include "gwm/dycore/dry_diagnostics.hpp"
 #include "gwm/dycore/dry_core.hpp"
 #include "gwm/physics/warm_rain.hpp"
@@ -14,16 +16,16 @@ struct TracerSummary {
   std::string name;
   std::string units;
   bool positive = true;
-  double total_mass = 0.0;
+  double column_integrated_sum_kg_m2 = 0.0;
   dycore::ScalarRange mixing_ratio;
 };
 
 struct MoistureBudgetSummary {
-  double vapor_water_mass = 0.0;
-  double cloud_water_mass = 0.0;
-  double rain_water_mass = 0.0;
-  double condensed_water_mass = 0.0;
-  double total_water_mass = 0.0;
+  double vapor_water_path_sum_kg_m2 = 0.0;
+  double cloud_water_path_sum_kg_m2 = 0.0;
+  double rain_water_path_sum_kg_m2 = 0.0;
+  double condensed_water_path_sum_kg_m2 = 0.0;
+  double total_water_path_sum_kg_m2 = 0.0;
   double accumulated_surface_precipitation_sum_mm = 0.0;
   double mean_surface_precipitation_mm = 0.0;
   double max_surface_precipitation_mm = 0.0;
@@ -42,6 +44,8 @@ struct RuntimeStateSummary {
 [[nodiscard]] RuntimeStateSummary summarize_runtime_state(
     const std::vector<dycore::DryState>& states,
     const std::vector<state::TracerState>& tracers,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics,
     const std::vector<physics::WarmRainSurfaceAccumulation>* accumulations =
         nullptr);
 

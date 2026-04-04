@@ -86,6 +86,13 @@ def main() -> None:
     parser.add_argument("--render-maps", action="store_true")
     parser.add_argument("--map-output-dir", default=None)
     parser.add_argument(
+        "--cuda-launch-blocking",
+        type=int,
+        choices=(0, 1),
+        default=None,
+        help="Optional debug override for CUDA_LAUNCH_BLOCKING. Default leaves the environment unchanged.",
+    )
+    parser.add_argument(
         "--map-fields",
         nargs="*",
         default=None,
@@ -100,7 +107,8 @@ def main() -> None:
 
     env = os.environ.copy()
     env.setdefault("PYTHONIOENCODING", "utf-8")
-    env.setdefault("CUDA_LAUNCH_BLOCKING", "1")
+    if args.cuda_launch_blocking is not None:
+        env["CUDA_LAUNCH_BLOCKING"] = str(args.cuda_launch_blocking)
 
     if args.populate:
         run_command(
@@ -257,9 +265,9 @@ def main() -> None:
     if final_moisture:
         print(
             "- final_moisture:"
-            f" vapor={final_moisture.get('vapor_water_mass', 0.0)}"
-            f" cloud={final_moisture.get('cloud_water_mass', 0.0)}"
-            f" rain={final_moisture.get('rain_water_mass', 0.0)}"
+            f" vapor={final_moisture.get('vapor_water_path_sum_kg_m2', 0.0)}"
+            f" cloud={final_moisture.get('cloud_water_path_sum_kg_m2', 0.0)}"
+            f" rain={final_moisture.get('rain_water_path_sum_kg_m2', 0.0)}"
             f" precip_sum_mm={final_moisture.get('accumulated_surface_precipitation_sum_mm', 0.0)}"
             f" precip_max_mm={final_moisture.get('max_surface_precipitation_mm', 0.0)}"
         )

@@ -1,6 +1,8 @@
 #include "gwm/dycore/dry_core.hpp"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cmath>
 
 #include "gwm/comm/collectives.hpp"
@@ -252,6 +254,22 @@ void blend_stage_field(state::FaceField<real>& out,
 
 void sync_after_launches() { GWM_CUDA_CHECK(cudaDeviceSynchronize()); }
 
+bool dry_core_trace_enabled() {
+  const char* value = std::getenv("GWM_TRACE_DRY_CORE");
+  if (value == nullptr) {
+    return false;
+  }
+  return std::string(value) != "0" && std::string(value) != "false";
+}
+
+void trace_dry_core(const char* message) {
+  if (!dry_core_trace_enabled()) {
+    return;
+  }
+  std::fprintf(stderr, "[dry_core] %s\n", message);
+  std::fflush(stderr);
+}
+
 }  // namespace
 
 DryState::DryState(int nx, int ny, int nz, int halo,
@@ -426,6 +444,7 @@ void compute_slow_tendencies(
                               "mom_w_halo");
     mom_w_fields.back().storage().copy_all_from(state.mom_w.storage());
   }
+  trace_dry_core("compute_slow_halo_fields_built");
 
   comm::HaloExchange::exchange_scalar(rho_fields, layout);
   comm::HaloExchange::exchange_scalar(rho_theta_fields, layout);
@@ -436,7 +455,9 @@ void compute_slow_tendencies(
   comm::HaloExchange::synchronize_owned_face_interfaces(mom_v_fields, layout);
   comm::HaloExchange::exchange_face(mom_u_fields, layout);
   comm::HaloExchange::exchange_face(mom_v_fields, layout);
+  trace_dry_core("compute_slow_halo_exchange_done");
   compute_dry_pressure_fields(rho_fields, rho_theta_fields, pressure_fields);
+  trace_dry_core("compute_slow_pressure_done");
 
   std::vector<double> theta_sum(static_cast<std::size_t>(metrics.nz), 0.0);
   std::vector<std::uint64_t> theta_count(static_cast<std::size_t>(metrics.nz),
@@ -456,6 +477,7 @@ void compute_slow_tendencies(
 
   comm::allreduce_sum_in_place(theta_sum);
   comm::allreduce_sum_in_place(theta_count);
+  trace_dry_core("compute_slow_theta_ref_host_done");
 
   real* theta_ref_device = nullptr;
   GWM_CUDA_CHECK(
@@ -466,6 +488,7 @@ void compute_slow_tendencies(
         theta_sum[idx] /
         static_cast<double>(std::max<std::uint64_t>(1u, theta_count[idx])));
   }
+  trace_dry_core("compute_slow_theta_ref_device_done");
 
   for (std::size_t n = 0; n < states.size(); ++n) {
     out[n].fill_zero();
@@ -486,12 +509,16 @@ void compute_slow_tendencies(
         static_cast<real>(metrics.dy));
     GWM_CUDA_CHECK(cudaGetLastError());
   }
+  sync_after_launches();
+  trace_dry_core("compute_slow_cell_tendencies_done");
 
   add_dry_momentum_flux_tendencies(rho_fields, mom_u_fields, mom_v_fields,
                                    mom_w_fields, layout, metrics, out);
+  trace_dry_core("compute_slow_momentum_flux_done");
 
   add_horizontal_pressure_gradient_tendencies(pressure_fields, layout, metrics,
                                               out);
+  trace_dry_core("compute_slow_pressure_gradient_done");
 
   for (std::size_t n = 0; n < states.size(); ++n) {
     dim3 block(8, 8, 4);
@@ -506,7 +533,9 @@ void compute_slow_tendencies(
     GWM_CUDA_CHECK(cudaGetLastError());
   }
   sync_after_launches();
+  trace_dry_core("compute_slow_buoyancy_done");
   GWM_CUDA_CHECK(cudaFree(theta_ref_device));
+  trace_dry_core("compute_slow_theta_ref_freed");
 }
 
 void advance_dry_state_ssprk3(
@@ -535,8 +564,11 @@ void advance_dry_state_ssprk3(
 
   std::vector<DrySlowTendencies> tendencies;
 
+  trace_dry_core("stage1_boundary_begin");
   boundary_updater.apply(states, layout, 0.0f);
+  trace_dry_core("stage1_boundary_done");
   compute_slow_tendencies(states, layout, metrics, config, tendencies);
+  trace_dry_core("stage1_slow_done");
   for (std::size_t n = 0; n < states.size(); ++n) {
     q1[n].copy_all_from(states[n]);
     update_stage_field(q1[n].rho_d, states[n].rho_d, tendencies[n].rho_d,
@@ -551,10 +583,16 @@ void advance_dry_state_ssprk3(
                        config.dt, -1.0e30f);
   }
   sync_after_launches();
+  trace_dry_core("stage1_update_done");
   fast_modes.apply(q1, layout, metrics, config);
+  sync_after_launches();
+  trace_dry_core("stage1_fast_done");
 
+  trace_dry_core("stage2_boundary_begin");
   boundary_updater.apply(q1, layout, config.dt);
+  trace_dry_core("stage2_boundary_done");
   compute_slow_tendencies(q1, layout, metrics, config, tendencies);
+  trace_dry_core("stage2_slow_done");
   for (std::size_t n = 0; n < states.size(); ++n) {
     tmp[n].copy_all_from(q1[n]);
     update_stage_field(tmp[n].rho_d, q1[n].rho_d, tendencies[n].rho_d,
@@ -575,10 +613,16 @@ void advance_dry_state_ssprk3(
     blend_stage_field(q2[n].mom_w, q0[n].mom_w, tmp[n].mom_w, 0.75f, 0.25f);
   }
   sync_after_launches();
+  trace_dry_core("stage2_update_done");
   fast_modes.apply(q2, layout, metrics, config);
+  sync_after_launches();
+  trace_dry_core("stage2_fast_done");
 
+  trace_dry_core("stage3_boundary_begin");
   boundary_updater.apply(q2, layout, 0.5f * config.dt);
+  trace_dry_core("stage3_boundary_done");
   compute_slow_tendencies(q2, layout, metrics, config, tendencies);
+  trace_dry_core("stage3_slow_done");
   for (std::size_t n = 0; n < states.size(); ++n) {
     tmp[n].copy_all_from(q2[n]);
     update_stage_field(tmp[n].rho_d, q2[n].rho_d, tendencies[n].rho_d,
@@ -603,7 +647,10 @@ void advance_dry_state_ssprk3(
                       1.0f / 3.0f, 2.0f / 3.0f);
   }
   sync_after_launches();
+  trace_dry_core("stage3_update_done");
   fast_modes.apply(states, layout, metrics, config);
+  sync_after_launches();
+  trace_dry_core("stage3_fast_done");
 }
 
 }  // namespace gwm::dycore

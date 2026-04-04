@@ -46,9 +46,9 @@ struct WarmRainSurfaceAccumulation {
 };
 
 struct WarmRainSummary {
-  double total_water_vapor_mass = 0.0;
-  double total_cloud_water_mass = 0.0;
-  double total_rain_water_mass = 0.0;
+  double vapor_water_path_sum_kg_m2 = 0.0;
+  double cloud_water_path_sum_kg_m2 = 0.0;
+  double rain_water_path_sum_kg_m2 = 0.0;
   double accumulated_surface_precipitation_sum_mm = 0.0;
   double mean_surface_precipitation_mm = 0.0;
   double max_surface_precipitation_mm = 0.0;
@@ -69,6 +69,8 @@ void apply_warm_rain_microphysics(
 
 [[nodiscard]] WarmRainSummary summarize_warm_rain(
     const std::vector<state::TracerState>& tracers,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics,
     const std::vector<WarmRainSurfaceAccumulation>* accumulations = nullptr);
 
 [[nodiscard]] std::string warm_rain_summary_to_json(

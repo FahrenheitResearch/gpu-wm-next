@@ -185,19 +185,29 @@ std::vector<state::TracerState> make_tracers_from_analysis(
     const AnalysisStateIR& analysis,
     const std::vector<dycore::DryState>& dry_states,
     const std::vector<domain::SubdomainDescriptor>& layout,
-    const state::TracerRegistry& registry, const std::string& label_prefix) {
+    const state::TracerRegistry& registry, const std::string& label_prefix,
+    const std::vector<state::TracerState>* baseline_tracers) {
   validate_runtime_analysis(analysis);
   gwm::require(dry_states.size() == layout.size(),
                "Dry-state/layout size mismatch in make_tracers_from_analysis");
+  if (baseline_tracers != nullptr) {
+    gwm::require(baseline_tracers->size() == layout.size(),
+                 "Baseline tracer/layout size mismatch in "
+                 "make_tracers_from_analysis");
+  }
 
   std::vector<state::TracerState> tracers;
   tracers.reserve(layout.size());
-  for (const auto& desc : layout) {
+  for (std::size_t rank = 0; rank < layout.size(); ++rank) {
+    const auto& desc = layout[rank];
     state::TracerState tracer_state(registry, desc.nx_local(), desc.ny_local(),
                                     desc.nz, desc.halo,
                                     label_prefix + "_rank_" +
                                         std::to_string(desc.rank));
     tracer_state.fill_zero();
+    if (baseline_tracers != nullptr) {
+      tracer_state.copy_all_from(baseline_tracers->at(rank));
+    }
     tracers.push_back(std::move(tracer_state));
   }
 
@@ -328,7 +338,7 @@ void PreparedCaseTracerBoundaryUpdater::apply(
       make_dry_states_from_analysis(boundary_analysis, layout, "boundary_ref");
   const auto boundary_tracers = make_tracers_from_analysis(
       boundary_analysis, boundary_dry_states, layout,
-      states.front().registry(), "boundary_tracer");
+      states.front().registry(), "boundary_tracer", &states);
   dycore::apply_reference_boundaries(states, boundary_tracers, layout);
 }
 

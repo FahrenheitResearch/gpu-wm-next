@@ -85,7 +85,8 @@ int main() {
         3, 2, 2, 1000.0, 1000.0, 2000.0,
         std::vector<real>(static_cast<std::size_t>(3 * 2), 0.0f));
     const auto before =
-        core::summarize_runtime_state(states, tracers, &accumulations);
+        core::summarize_runtime_state(states, tracers, layout, metrics,
+                                      &accumulations);
     const auto total_before =
         total_column_water_per_area(tracers.front(), layout.front(), metrics);
 
@@ -100,7 +101,8 @@ int main() {
                                           config, &accumulations);
 
     const auto after =
-        core::summarize_runtime_state(states, tracers, &accumulations);
+        core::summarize_runtime_state(states, tracers, layout, metrics,
+                                      &accumulations);
     const auto& qv = require_tracer(after, state::kSpecificHumidityTracerName);
     const auto& qc = require_tracer(after, state::kCloudWaterTracerName);
     const auto& qr = require_tracer(after, state::kRainWaterTracerName);
@@ -109,8 +111,12 @@ int main() {
         accumulations.front().liquid_precipitation_kg_m2.owned_sum();
     TEST_NEAR(total_after, total_before, 1.0e-3);
     TEST_CHECK(after.dry.total_rho_theta_m > before.dry.total_rho_theta_m);
-    TEST_CHECK(after.moisture.condensed_water_mass > 0.0);
+    TEST_CHECK(after.moisture.condensed_water_path_sum_kg_m2 > 0.0);
     TEST_CHECK(after.moisture.accumulated_surface_precipitation_sum_mm > 0.0);
+    TEST_NEAR(
+        after.moisture.total_water_path_sum_kg_m2 +
+            after.moisture.accumulated_surface_precipitation_sum_mm,
+        before.moisture.total_water_path_sum_kg_m2, 1.0e-3);
     TEST_CHECK(qv.mixing_ratio.min >= -1.0e-8);
     TEST_CHECK(qc.mixing_ratio.min >= -1.0e-8);
     TEST_CHECK(qr.mixing_ratio.min >= -1.0e-8);

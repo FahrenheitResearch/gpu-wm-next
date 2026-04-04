@@ -64,8 +64,9 @@ The runtime/product contract for this milestone is:
 8. accumulated surface precipitation is read from the warm-rain accumulation
    sidecar and mean surface precipitation rate is diagnosed as
    `accumulated_surface_precipitation / elapsed_time`
-9. the prepared-case summary sidecar reports tracer totals plus total/condensed
-   water masses for milestone-proof closure
+9. the prepared-case summary sidecar reports column-integrated tracer path sums
+   (`sum_k rho_d q Delta z`) plus total/condensed water paths and accumulated
+   surface precipitation for milestone-proof consistency checks
 
 ## Invariants / admissibility
 
@@ -119,4 +120,5 @@ The runtime/product contract for this milestone is:
 - `tests/unit/test_surface_obsops.cpp`
 - `tests/unit/test_ingest_contracts.cpp`
 - `tests/unit/test_runtime_case.cpp`
+- `tests/unit/test_moist_thermo.cpp`
 - `tools/verify/test_source_run_bundle.py`

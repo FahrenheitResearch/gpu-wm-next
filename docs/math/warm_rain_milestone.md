@@ -33,7 +33,7 @@ At the current checkpoint:
 4. a bounded metric-aware fallout pass moves rain mass downward and deposits
    bottom-layer outflow into accumulated surface precipitation
 5. the prepared-case runtime summary emits both dry diagnostics and tracer-side
-   moisture totals/ranges, including accumulated precipitation closure
+   column-integrated water paths/ranges, plus accumulated precipitation metrics
 
 ## Invariants / admissibility
 
@@ -44,11 +44,12 @@ At the current checkpoint:
   warm-rain-plus-fallout update
 - tracer masses remain nonnegative
 - runtime summary sidecars expose:
-  - vapor, cloud, rain, condensed, and total water masses
+  - vapor, cloud, rain, condensed, and total water paths (`kg m^-2` summed
+    over the horizontal owned domain)
   - accumulated/mean/max surface precipitation metrics
   - total surface cell count, precipitating cell count/fraction, and wet-cell
     mean accumulated precipitation
-  - per-tracer total mass
+  - per-tracer column-integrated path sums
   - per-tracer mixing-ratio min/max
 - prepared/source-run summaries remain JSON-first artifacts, not restart truth
 
@@ -61,6 +62,9 @@ At the current checkpoint:
 - no direct surface, PBL, or radiation coupling in the same patch
 - source-run verification still treats the summary sidecar as a proof/report
   artifact rather than a restart contract
+- populated source-run inputs may precondition supersaturated humidity into
+  initial cloud water before timestep zero so the runtime warm-rain kernel does
+  not absorb the entire condensation shock on the first step
 - bundle verification cross-checks the final summary fallout metrics against the
   emitted runtime plan-view accumulation/rate products when those artifacts are
   present
@@ -72,4 +76,5 @@ At the current checkpoint:
 - `tests/unit/test_runtime_summary.cpp`
 - `tests/regression/test_warm_rain_summary_closure.cpp`
 - `tools/verify/test_source_run_bundle.py`
+- `tools/verify/test_populate_prepared_case.py`
 - `tools/verify/run_verification.py`

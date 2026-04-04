@@ -13,6 +13,54 @@ import numpy as np
 
 RD = 287.05
 GRAVITY = 9.81
+KAPPA = 0.2854
+DRY_CP = RD / KAPPA
+LATENT_HEAT_VAPORIZATION = 2.5e6
+WATER_VAPOR_GAS_CONSTANT = 461.5
+EPSILON = RD / WATER_VAPOR_GAS_CONSTANT
+
+LEGACY_SHORT_PRESSURE_LEVELS_HPA = [1000, 925, 850, 700, 500]
+DEFAULT_DEEP_PRESSURE_LEVELS_HPA = [
+    1000,
+    975,
+    950,
+    925,
+    900,
+    875,
+    850,
+    825,
+    800,
+    775,
+    750,
+    725,
+    700,
+    675,
+    650,
+    625,
+    600,
+    575,
+    550,
+    525,
+    500,
+    475,
+    450,
+    425,
+    400,
+    375,
+    350,
+    325,
+    300,
+    275,
+    250,
+    225,
+    200,
+    175,
+    150,
+    125,
+    100,
+    75,
+    50,
+]
 
 
 @dataclass(frozen=True)
@@ -129,8 +177,216 @@ def flatten_3d(values: np.ndarray) -> list[float]:
     return [float(value) for value in np.ravel(values, order="C")]
 
 
+def terrain_weight_profile(eta: np.ndarray, terrain_taper_eta: float) -> np.ndarray:
+    weights = np.empty_like(eta, dtype=np.float64)
+    for index, eta_value in enumerate(eta):
+        if eta_value <= 0.0:
+            weights[index] = 1.0
+        elif eta_value >= 1.0:
+            weights[index] = 0.0
+        elif terrain_taper_eta <= 0.0:
+            s_value = float(np.clip(eta_value, 0.0, 1.0))
+            weights[index] = 1.0 - s_value * s_value * (3.0 - 2.0 * s_value)
+        elif eta_value <= terrain_taper_eta:
+            weights[index] = 1.0
+        else:
+            s_value = float(
+                np.clip(
+                    (eta_value - terrain_taper_eta) / max(1.0e-9, 1.0 - terrain_taper_eta),
+                    0.0,
+                    1.0,
+                )
+            )
+            weights[index] = 1.0 - s_value * s_value * (3.0 - 2.0 * s_value)
+    return weights
+
+
+def build_target_z_centers(
+    nz: int,
+    z_top: float,
+    terrain_height: np.ndarray,
+    terrain_taper_eta: float = 0.25,
+) -> np.ndarray:
+    eta_centers = (np.arange(nz, dtype=np.float64) + 0.5) / float(nz)
+    flat_z_centers = eta_centers * float(z_top)
+    terrain_weights = terrain_weight_profile(eta_centers, terrain_taper_eta)
+    return (
+        flat_z_centers[:, None, None]
+        + terrain_weights[:, None, None] * terrain_height[None, :, :]
+    ).astype(np.float32)
+
+
+def interpolate_profile(
+    source_heights: np.ndarray,
+    source_values: np.ndarray,
+    target_heights: np.ndarray,
+    *,
+    log_values: bool = False,
+    clip_min: float | None = None,
+) -> np.ndarray:
+    order = np.argsort(source_heights)
+    sorted_heights = np.asarray(source_heights[order], dtype=np.float64)
+    sorted_values = np.asarray(source_values[order], dtype=np.float64)
+
+    unique_heights, unique_indices = np.unique(sorted_heights, return_index=True)
+    unique_values = sorted_values[unique_indices]
+
+    if unique_heights.size == 1:
+        result = np.full_like(target_heights, unique_values[0], dtype=np.float64)
+    else:
+        if log_values:
+            transformed = np.log(np.maximum(unique_values, 1.0))
+            result = np.exp(
+                np.interp(
+                    target_heights,
+                    unique_heights,
+                    transformed,
+                    left=transformed[0],
+                    right=transformed[-1],
+                )
+            )
+        else:
+            result = np.interp(
+                target_heights,
+                unique_heights,
+                unique_values,
+                left=unique_values[0],
+                right=unique_values[-1],
+            )
+
+    if clip_min is not None:
+        result = np.maximum(result, clip_min)
+    return result.astype(np.float32)
+
+
+def remap_atmosphere_to_model_levels(
+    cropped_atmosphere: dict[str, np.ndarray],
+    target_z_centers: np.ndarray,
+) -> dict[str, np.ndarray]:
+    nz_target, ny, nx = target_z_centers.shape
+    source_heights = np.asarray(cropped_atmosphere["geopotential_height"], dtype=np.float32)
+    remapped: dict[str, np.ndarray] = {
+        "geopotential_height": np.array(target_z_centers, copy=True, dtype=np.float32)
+    }
+    linear_fields = ("u_wind", "v_wind", "w_wind", "air_temperature")
+    nonnegative_fields = {"specific_humidity": 0.0}
+
+    for field_name in linear_fields:
+        remapped[field_name] = np.empty((nz_target, ny, nx), dtype=np.float32)
+    for field_name in nonnegative_fields:
+        remapped[field_name] = np.empty((nz_target, ny, nx), dtype=np.float32)
+    remapped["air_pressure"] = np.empty((nz_target, ny, nx), dtype=np.float32)
+
+    for j in range(ny):
+        for i in range(nx):
+            source_z_column = source_heights[:, j, i]
+            target_z_column = target_z_centers[:, j, i]
+            for field_name in linear_fields:
+                remapped[field_name][:, j, i] = interpolate_profile(
+                    source_z_column,
+                    cropped_atmosphere[field_name][:, j, i],
+                    target_z_column,
+                )
+            for field_name, clip_min in nonnegative_fields.items():
+                remapped[field_name][:, j, i] = interpolate_profile(
+                    source_z_column,
+                    cropped_atmosphere[field_name][:, j, i],
+                    target_z_column,
+                    clip_min=clip_min,
+                )
+            remapped["air_pressure"][:, j, i] = interpolate_profile(
+                source_z_column,
+                cropped_atmosphere["air_pressure"][:, j, i],
+                target_z_column,
+                log_values=True,
+                clip_min=1.0,
+            )
+
+    return remapped
+
+
 def level_hpa_strings(levels_hpa: list[int]) -> str:
     return "|".join(str(level) for level in levels_hpa)
+
+
+def normalize_pressure_levels(levels_hpa: list[int]) -> list[int]:
+    return sorted({int(level) for level in levels_hpa}, reverse=True)
+
+
+def choose_source_pressure_levels(
+    requested_levels_hpa: list[int], target_nz: int
+) -> list[int]:
+    normalized = normalize_pressure_levels(requested_levels_hpa)
+    if target_nz < 20 or len(normalized) >= 20:
+        return normalized
+    if normalized == LEGACY_SHORT_PRESSURE_LEVELS_HPA:
+        return list(DEFAULT_DEEP_PRESSURE_LEVELS_HPA)
+    return sorted(set(DEFAULT_DEEP_PRESSURE_LEVELS_HPA).union(normalized), reverse=True)
+
+
+def saturation_vapor_pressure_pa(temperature_k: np.ndarray) -> np.ndarray:
+    temp_c = temperature_k - 273.15
+    es_hpa = 6.112 * np.exp((17.67 * temp_c) / np.maximum(temp_c + 243.5, 1.0e-6))
+    return es_hpa * 100.0
+
+
+def saturation_specific_humidity(
+    temperature_k: np.ndarray, pressure_pa: np.ndarray
+) -> np.ndarray:
+    es_pa = saturation_vapor_pressure_pa(temperature_k)
+    denom = np.maximum(pressure_pa - (1.0 - EPSILON) * es_pa, 1000.0)
+    return np.clip(EPSILON * es_pa / denom, 0.0, 0.05)
+
+
+def apply_warm_rain_saturation_adjustment(
+    atmosphere: dict[str, np.ndarray],
+) -> tuple[dict[str, np.ndarray], dict[str, float | int]]:
+    temperature0 = np.asarray(atmosphere["air_temperature"], dtype=np.float64).copy()
+    pressure = np.asarray(atmosphere["air_pressure"], dtype=np.float64)
+    qv0 = np.asarray(atmosphere["specific_humidity"], dtype=np.float64).copy()
+    qc0 = np.asarray(
+        atmosphere.get("cloud_water_mixing_ratio", np.zeros_like(qv0)),
+        dtype=np.float64,
+    ).copy()
+    qr = np.asarray(
+        atmosphere.get("rain_water_mixing_ratio", np.zeros_like(qv0)),
+        dtype=np.float64,
+    ).copy()
+    qt = np.clip(qv0, 0.0, None) + np.clip(qc0, 0.0, None)
+
+    initial_rh = np.where(
+        saturation_specific_humidity(temperature0, pressure) > 0.0,
+        qv0 / np.maximum(saturation_specific_humidity(temperature0, pressure), 1.0e-12),
+        0.0,
+    )
+    supersat_cells = int(np.count_nonzero(initial_rh > 1.0 + 1.0e-6))
+    qv_eq = np.minimum(qt, saturation_specific_humidity(temperature0, pressure))
+    for _ in range(32):
+        temperature_eq = temperature0 + (LATENT_HEAT_VAPORIZATION / DRY_CP) * (
+            qv0 - qv_eq
+        )
+        qsat_eq = saturation_specific_humidity(temperature_eq, pressure)
+        new_qv_eq = np.minimum(qt, qsat_eq)
+        if np.nanmax(np.abs(new_qv_eq - qv_eq)) <= 1.0e-9:
+            qv_eq = new_qv_eq
+            break
+        qv_eq = new_qv_eq
+
+    qv = np.clip(qv_eq, 0.0, None)
+    qc = np.clip(qt - qv, 0.0, None)
+    temperature = temperature0 + (LATENT_HEAT_VAPORIZATION / DRY_CP) * (qv0 - qv)
+    total_condensed = float(np.sum(np.maximum(qc - qc0, 0.0)))
+
+    adjusted = dict(atmosphere)
+    adjusted["air_temperature"] = temperature.astype(np.float32)
+    adjusted["specific_humidity"] = np.clip(qv, 0.0, None).astype(np.float32)
+    adjusted["cloud_water_mixing_ratio"] = np.clip(qc, 0.0, None).astype(np.float32)
+    adjusted["rain_water_mixing_ratio"] = np.clip(qr, 0.0, None).astype(np.float32)
+    return adjusted, {
+        "max_initial_relative_humidity_pct": float(np.nanmax(initial_rh) * 100.0),
+        "supersaturated_cell_count": supersat_cells,
+        "initial_condensed_mixing_ratio_sum": total_condensed,
+    }
 
 
 def open_source_dataset(
@@ -305,6 +561,7 @@ def build_analysis_payload(
     crop_window: CropWindow,
     surface_fields: dict[str, np.ndarray],
     atmosphere_fields: dict[str, Any],
+    requested_pressure_levels_hpa: list[int],
     valid_time_utc: str,
     forecast_offset_seconds: int,
 ) -> dict[str, Any]:
@@ -312,11 +569,29 @@ def build_analysis_payload(
     grid = dict(prepared_case["grid"])
     grid["nx"] = crop_window.nx
     grid["ny"] = crop_window.ny
-    grid["nz"] = len(pressure_levels_hpa)
-    cropped_geopotential_height = crop_3d(atmosphere_fields["geopotential_height"], crop_window)
-    grid["z_top"] = max(
-        float(grid.get("z_top", 0.0)),
-        float(np.nanmax(cropped_geopotential_height)) * 1.15 + 250.0,
+    target_nz = int(grid["nz"])
+    terrain_height = crop_2d(surface_fields["terrain_height"], crop_window)
+    cropped_atmosphere = {
+        "u_wind": crop_3d(atmosphere_fields["u_wind"], crop_window),
+        "v_wind": crop_3d(atmosphere_fields["v_wind"], crop_window),
+        "w_wind": crop_3d(atmosphere_fields["w_wind"], crop_window),
+        "air_temperature": crop_3d(atmosphere_fields["air_temperature"], crop_window),
+        "specific_humidity": crop_3d(atmosphere_fields["specific_humidity"], crop_window),
+        "air_pressure": crop_3d(atmosphere_fields["air_pressure"], crop_window),
+        "geopotential_height": crop_3d(atmosphere_fields["geopotential_height"], crop_window),
+    }
+    source_top_height_m = float(np.nanmax(cropped_atmosphere["geopotential_height"]))
+    target_z_centers = build_target_z_centers(
+        target_nz,
+        float(grid["z_top"]),
+        terrain_height,
+    )
+    remapped_atmosphere = remap_atmosphere_to_model_levels(
+        cropped_atmosphere,
+        target_z_centers,
+    )
+    remapped_atmosphere, moist_adjustment = apply_warm_rain_saturation_adjustment(
+        remapped_atmosphere
     )
     grid["ref_lat"] = float(np.mean(crop_2d(surface_fields["latitude"], crop_window)))
     grid["ref_lon"] = float(np.mean(crop_2d(surface_fields["longitude"], crop_window)))
@@ -324,7 +599,17 @@ def build_analysis_payload(
     metadata = {
         "domain_name": prepared_case["domain_name"],
         "status": "populated",
-        "pressure_levels_hpa": pressure_levels_hpa,
+        "requested_pressure_levels_hpa": normalize_pressure_levels(
+            requested_pressure_levels_hpa
+        ),
+        "source_pressure_levels_hpa": pressure_levels_hpa,
+        "source_top_height_m": source_top_height_m,
+        "vertical_remap": {
+            "target_nz": target_nz,
+            "terrain_taper_eta": 0.25,
+            "coordinate": "terrain-following-height-centers",
+        },
+        "warm_rain_initial_adjustment": moist_adjustment,
         "target_window": prepared_case.get("target_window", {}),
         "crop_window": {
             "i0": crop_window.i0,
@@ -335,15 +620,19 @@ def build_analysis_payload(
     }
 
     atmosphere = {
-        "u_wind": flatten_3d(crop_3d(atmosphere_fields["u_wind"], crop_window)),
-        "v_wind": flatten_3d(crop_3d(atmosphere_fields["v_wind"], crop_window)),
-        "w_wind": flatten_3d(crop_3d(atmosphere_fields["w_wind"], crop_window)),
-        "air_temperature": flatten_3d(crop_3d(atmosphere_fields["air_temperature"], crop_window)),
-        "specific_humidity": flatten_3d(
-            crop_3d(atmosphere_fields["specific_humidity"], crop_window)
+        "u_wind": flatten_3d(remapped_atmosphere["u_wind"]),
+        "v_wind": flatten_3d(remapped_atmosphere["v_wind"]),
+        "w_wind": flatten_3d(remapped_atmosphere["w_wind"]),
+        "air_temperature": flatten_3d(remapped_atmosphere["air_temperature"]),
+        "specific_humidity": flatten_3d(remapped_atmosphere["specific_humidity"]),
+        "cloud_water_mixing_ratio": flatten_3d(
+            remapped_atmosphere["cloud_water_mixing_ratio"]
         ),
-        "air_pressure": flatten_3d(crop_3d(atmosphere_fields["air_pressure"], crop_window)),
-        "geopotential_height": flatten_3d(cropped_geopotential_height),
+        "rain_water_mixing_ratio": flatten_3d(
+            remapped_atmosphere["rain_water_mixing_ratio"]
+        ),
+        "air_pressure": flatten_3d(remapped_atmosphere["air_pressure"]),
+        "geopotential_height": flatten_3d(remapped_atmosphere["geopotential_height"]),
     }
     surface = {
         "surface_pressure": flatten_2d(crop_2d(surface_fields["surface_pressure"], crop_window)),
@@ -379,13 +668,14 @@ def build_boundary_payload(
     prepared_case: dict[str, Any],
     crop_window: CropWindow,
     snapshots: list[dict[str, Any]],
-    pressure_levels_hpa: list[int],
+    requested_pressure_levels_hpa: list[int],
+    source_pressure_levels_hpa: list[int],
     z_top: float,
 ) -> dict[str, Any]:
     grid = dict(prepared_case["grid"])
     grid["nx"] = crop_window.nx
     grid["ny"] = crop_window.ny
-    grid["nz"] = len(pressure_levels_hpa)
+    grid["nz"] = int(grid["nz"])
     grid["z_top"] = z_top
     payload_snapshots: list[dict[str, Any]] = []
     for snapshot in snapshots:
@@ -407,7 +697,12 @@ def build_boundary_payload(
         "metadata": {
             "domain_name": prepared_case["domain_name"],
             "status": "populated",
-            "pressure_levels_hpa": pressure_levels_hpa,
+            "requested_pressure_levels_hpa": normalize_pressure_levels(
+                requested_pressure_levels_hpa
+            ),
+            "source_pressure_levels_hpa": normalize_pressure_levels(
+                source_pressure_levels_hpa
+            ),
             "target_window": prepared_case.get("target_window", {}),
             "crop_window": {
                 "i0": crop_window.i0,
@@ -422,12 +717,24 @@ def build_boundary_payload(
 
 def populate_hrrr(prepared_case: dict[str, Any], output_dir: Path) -> dict[str, str]:
     target_window = prepared_case.get("target_window", {})
-    pressure_levels_hpa = [int(level) for level in target_window.get("pressure_levels_hpa", [1000, 925, 850, 700, 500])]
+    requested_pressure_levels_hpa = normalize_pressure_levels(
+        [
+            int(level)
+            for level in target_window.get(
+                "pressure_levels_hpa", LEGACY_SHORT_PRESSURE_LEVELS_HPA
+            )
+        ]
+    )
     cycle_time_utc = prepared_case["times"]["cycle_time_utc"]
     grid = prepared_case["grid"]
+    source_pressure_levels_hpa = choose_source_pressure_levels(
+        requested_pressure_levels_hpa, int(grid["nz"])
+    )
 
     surface_fields = extract_hrrr_surface_fields(cycle_time_utc, 0)
-    atmosphere_fields = extract_hrrr_atmosphere_fields(cycle_time_utc, 0, pressure_levels_hpa)
+    atmosphere_fields = extract_hrrr_atmosphere_fields(
+        cycle_time_utc, 0, source_pressure_levels_hpa
+    )
     crop_window = compute_crop_window(
         surface_fields["latitude"],
         surface_fields["longitude"],
@@ -442,6 +749,7 @@ def populate_hrrr(prepared_case: dict[str, Any], output_dir: Path) -> dict[str, 
         crop_window,
         surface_fields,
         atmosphere_fields,
+        requested_pressure_levels_hpa,
         prepared_case["times"]["analysis_valid_time_utc"],
         0,
     )
@@ -450,12 +758,15 @@ def populate_hrrr(prepared_case: dict[str, Any], output_dir: Path) -> dict[str, 
     offsets = prepared_case["contracts"]["boundary_cache"]["forecast_offsets_seconds"]
     for offset in offsets:
         surface_snapshot = extract_hrrr_surface_fields(cycle_time_utc, int(offset))
-        atmosphere_snapshot = extract_hrrr_atmosphere_fields(cycle_time_utc, int(offset), pressure_levels_hpa)
+        atmosphere_snapshot = extract_hrrr_atmosphere_fields(
+            cycle_time_utc, int(offset), source_pressure_levels_hpa
+        )
         analysis_like = build_analysis_payload(
             prepared_case,
             crop_window,
             surface_snapshot,
             atmosphere_snapshot,
+            requested_pressure_levels_hpa,
             valid_time_utc=format_utc(parse_utc(cycle_time_utc) + timedelta(seconds=int(offset))),
             forecast_offset_seconds=int(offset),
         )
@@ -472,7 +783,8 @@ def populate_hrrr(prepared_case: dict[str, Any], output_dir: Path) -> dict[str, 
         prepared_case,
         crop_window,
         boundary_snapshots,
-        analysis_payload["metadata"]["pressure_levels_hpa"],
+        requested_pressure_levels_hpa,
+        source_pressure_levels_hpa,
         float(analysis_payload["grid"]["z_top"]),
     )
 

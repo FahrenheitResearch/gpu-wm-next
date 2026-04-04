@@ -30,6 +30,21 @@ struct DriverOptions {
   int plan_view_level = 0;
 };
 
+bool driver_trace_enabled() {
+  const char* value = std::getenv("GWM_TRACE_DRIVER");
+  if (value == nullptr) {
+    return false;
+  }
+  return std::string(value) != "0" && std::string(value) != "false";
+}
+
+void trace_driver(const std::string& message) {
+  if (!driver_trace_enabled()) {
+    return;
+  }
+  std::cerr << "[gwm_prepared_case_driver] " << message << std::endl;
+}
+
 template <typename T>
 T parse_value(const std::string& value);
 
@@ -164,25 +179,33 @@ std::string prepared_summary_json(
 
 int main(int argc, char** argv) {
   try {
+    trace_driver("startup");
     DriverOptions opts{};
     parse_args(argc, argv, opts);
+    trace_driver("args_parsed");
 
     const auto runtime_case = gwm::ingest::load_prepared_runtime_case(
         opts.analysis_state_path, opts.boundary_cache_path);
+    trace_driver("runtime_case_loaded");
     const auto layout =
         gwm::ingest::make_prepared_case_layout(runtime_case.analysis,
                                                opts.init_config);
+    trace_driver("layout_built");
     const auto metrics =
         gwm::ingest::make_prepared_case_metrics(runtime_case.analysis,
                                                 opts.init_config);
+    trace_driver("metrics_built");
     auto states = gwm::ingest::make_dry_states_from_analysis(
         runtime_case.analysis, layout, "prepared_case");
+    trace_driver("dry_states_initialized");
     auto tracers = gwm::ingest::make_warm_rain_tracers_from_analysis(
         runtime_case.analysis, states, layout, "prepared_case_tracer");
+    trace_driver("warm_rain_tracers_initialized");
 
     const auto surface_runtime = gwm::surface::make_surface_runtime_from_canonical_fields(
         runtime_case.analysis.surface, runtime_case.analysis.static_surface,
         runtime_case.analysis.grid.nx, runtime_case.analysis.grid.ny);
+    trace_driver("surface_runtime_initialized");
     (void)surface_runtime.properties;
     std::vector<gwm::physics::WarmRainSurfaceAccumulation> surface_precip_accum;
     surface_precip_accum.resize(states.size());
@@ -193,7 +216,9 @@ int main(int argc, char** argv) {
     }
 
     const auto initial =
-        gwm::core::summarize_runtime_state(states, tracers, &surface_precip_accum);
+        gwm::core::summarize_runtime_state(states, tracers, layout, metrics,
+                                          &surface_precip_accum);
+    trace_driver("initial_summary_done");
 
     gwm::ingest::PreparedCaseBoundaryUpdater boundary_updater(
         runtime_case.analysis, runtime_case.boundary_cache, opts.init_config);
@@ -206,22 +231,32 @@ int main(int argc, char** argv) {
 
     gwm::real sim_time = 0.0f;
     for (int step = 0; step < opts.steps; ++step) {
+      trace_driver("step_" + std::to_string(step) + "_begin");
       boundary_updater.set_step_start_time(sim_time);
       tracer_boundary_updater.set_step_start_time(sim_time);
+      trace_driver("step_" + std::to_string(step) + "_boundaries_configured");
       gwm::dycore::advance_dry_state_ssprk3(states, layout, metrics,
                                             opts.step_config, boundary_updater,
                                             fast_modes);
+      trace_driver("step_" + std::to_string(step) + "_dry_done");
       gwm::dycore::advance_passive_tracers_ssprk3(
           tracers, states, layout, metrics, opts.step_config,
           tracer_boundary_updater);
+      trace_driver("step_" + std::to_string(step) + "_tracers_done");
       gwm::physics::apply_warm_rain_microphysics(
           states, tracers, layout, metrics, warm_rain_config,
           &surface_precip_accum);
+      trace_driver("step_" + std::to_string(step) + "_warm_rain_done");
       sim_time += opts.step_config.dt;
     }
 
+    GWM_CUDA_CHECK(cudaDeviceSynchronize());
+    trace_driver("post_step_sync_done");
+
     const auto final =
-        gwm::core::summarize_runtime_state(states, tracers, &surface_precip_accum);
+        gwm::core::summarize_runtime_state(states, tracers, layout, metrics,
+                                          &surface_precip_accum);
+    trace_driver("final_summary_done");
     const auto summary_json =
         prepared_summary_json(runtime_case, opts.steps, opts.step_config.dt,
                               opts.step_config.fast_substeps, surface_runtime,

@@ -82,6 +82,9 @@ The prepared/source-driven path is now also executable:
 3. `run_prepared_case.py` drives `gwm_prepared_case_driver`, renders plan-view
    maps, and runs verification on the resulting bundle.
 
+`run_prepared_case.py` does not force `CUDA_LAUNCH_BLOCKING=1` anymore. Use
+`--cuda-launch-blocking 1` only when debugging async/runtime issues.
+
 Both wrappers can request a plan-view field slice from the driver and render
 actual map images in one step.
 
@@ -134,3 +137,9 @@ That produces a verified source-run bundle containing:
 - `summary.json`
 - `plan_view.json`
 - `map_manifest.json`
+
+For large `nz` source runs, `populate_prepared_case.py` now deepens the
+source-side pressure-level stack when a legacy short list would under-resolve
+the target column, preserves the manifest `z_top`, and preconditions
+supersaturated source humidity into initial cloud water before the runtime
+warm-rain step.

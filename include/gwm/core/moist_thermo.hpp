@@ -31,7 +31,7 @@ __host__ __device__ inline real saturation_vapor_pressure_pa(
 __host__ __device__ inline real saturation_specific_humidity(
     real temperature_k, real pressure_pa) {
   const real es_pa = saturation_vapor_pressure_pa(temperature_k);
-  const real denom = fmaxf(pressure_pa - es_pa, 1000.0f);
+  const real denom = fmaxf(pressure_pa - (1.0f - kEpsilon) * es_pa, 1000.0f);
   return fminf(fmaxf(kEpsilon * es_pa / denom, 0.0f), 0.05f);
 }
 

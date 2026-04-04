@@ -41,16 +41,7 @@ def main() -> None:
         bundle_dir = Path(temp_dir.name)
         cleanup = temp_dir.cleanup
     try:
-        image_dir = bundle_dir / "plan_view_maps"
-        image_dir.mkdir(parents=True, exist_ok=True)
-        image_path = image_dir / "rho_d.png"
-        qv_image_path = image_dir / "specific_humidity.png"
-        refl_image_path = image_dir / "synthetic_reflectivity.png"
-        precip_image_path = image_dir / "accumulated_surface_precipitation.png"
-        write_text(image_path, "placeholder image")
-        write_text(qv_image_path, "placeholder image")
-        write_text(refl_image_path, "placeholder image")
-        write_text(precip_image_path, "placeholder image")
+        runner = repo_root / "tools" / "casebuilder" / "run_prepared_case.py"
 
         prepared_case_manifest = {
             "schema_version": "gwm-next-prepared-case/v1",
@@ -212,286 +203,6 @@ def main() -> None:
             ],
         }
 
-        summary = {
-            "case": "prepared_case",
-            "source": "HRRR",
-            "cycle_time_utc": "2026-04-04T00:00:00Z",
-            "analysis_valid_time_utc": "2026-04-04T00:00:00Z",
-            "steps": 1,
-            "dt": 2.0,
-            "fast_substeps": 2,
-            "elapsed_seconds": 2.0,
-            "elapsed_hours": 2.0 / 3600.0,
-            "grid": {
-                "nx": 2,
-                "ny": 2,
-                "nz": 2,
-                "dx": 3000.0,
-                "dy": 3000.0,
-                "z_top": 12000.0,
-            },
-            "surface_runtime": {
-                "ntile": 1,
-                "nsoil": 4,
-            },
-            "initial": {
-                "total_dry_mass": 8.0,
-                "total_rho_theta_m": 2400.0,
-                "moisture": {
-                    "vapor_water_mass": 0.08,
-                    "cloud_water_mass": 0.0,
-                    "rain_water_mass": 0.0,
-                    "condensed_water_mass": 0.0,
-                    "total_water_mass": 0.08,
-                    "accumulated_surface_precipitation_sum_mm": 0.0,
-                    "mean_surface_precipitation_mm": 0.0,
-                    "max_surface_precipitation_mm": 0.0,
-                    "total_surface_cell_count": 4,
-                    "precipitating_surface_cell_count": 0,
-                    "precipitating_surface_fraction": 0.0,
-                    "mean_precipitating_surface_precipitation_mm": 0.0,
-                },
-                "tracers": {
-                    "specific_humidity": {
-                        "units": "kg/kg",
-                        "positive": True,
-                        "total_mass": 0.08,
-                        "mixing_ratio": {"min": 0.01, "max": 0.01},
-                    },
-                    "cloud_water_mixing_ratio": {
-                        "units": "kg/kg",
-                        "positive": True,
-                        "total_mass": 0.0,
-                        "mixing_ratio": {"min": 0.0, "max": 0.0},
-                    },
-                    "rain_water_mixing_ratio": {
-                        "units": "kg/kg",
-                        "positive": True,
-                        "total_mass": 0.0,
-                        "mixing_ratio": {"min": 0.0, "max": 0.0},
-                    }
-                },
-            },
-            "final": {
-                "total_dry_mass": 8.0,
-                "total_rho_theta_m": 2400.0,
-                "w_face": {"min": -0.1, "max": 0.1},
-                "moisture": {
-                    "vapor_water_mass": 0.078,
-                    "cloud_water_mass": 0.001,
-                    "rain_water_mass": 0.001,
-                    "condensed_water_mass": 0.002,
-                    "total_water_mass": 0.08,
-                    "accumulated_surface_precipitation_sum_mm": 0.002,
-                    "mean_surface_precipitation_mm": 0.0005,
-                    "max_surface_precipitation_mm": 0.001,
-                    "total_surface_cell_count": 4,
-                    "precipitating_surface_cell_count": 2,
-                    "precipitating_surface_fraction": 0.5,
-                    "mean_precipitating_surface_precipitation_mm": 0.001,
-                },
-                "tracers": {
-                    "specific_humidity": {
-                        "units": "kg/kg",
-                        "positive": True,
-                        "total_mass": 0.078,
-                        "mixing_ratio": {"min": 0.0095, "max": 0.0105},
-                    },
-                    "cloud_water_mixing_ratio": {
-                        "units": "kg/kg",
-                        "positive": True,
-                        "total_mass": 0.001,
-                        "mixing_ratio": {"min": 0.0, "max": 0.0004},
-                    },
-                    "rain_water_mixing_ratio": {
-                        "units": "kg/kg",
-                        "positive": True,
-                        "total_mass": 0.001,
-                        "mixing_ratio": {"min": 0.0, "max": 0.0003},
-                    }
-                },
-            },
-        }
-
-        plan_view = {
-            "schema_version": "gwm-next-plan-view/v1",
-            "case": "source_run_smoke",
-            "steps": 1,
-            "dt": 2.0,
-            "slice_k": 0,
-            "grid": {
-                "nx": 2,
-                "ny": 2,
-                "nz": 2,
-                "dx": 3000.0,
-                "dy": 3000.0,
-            },
-            "slice_mean_height_m": 50.0,
-            "fields": [
-                {
-                    "name": "rho_d",
-                    "units": "kg m^-3",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [1.0, 1.0, 1.0, 1.0],
-                },
-                {
-                    "name": "specific_humidity",
-                    "units": "kg kg^-1",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [0.010, 0.011, 0.009, 0.0105],
-                },
-                {
-                    "name": "relative_humidity",
-                    "units": "%",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [65.0, 70.0, 68.0, 72.0],
-                },
-                {
-                    "name": "dewpoint",
-                    "units": "K",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [293.0, 294.0, 292.5, 293.5],
-                },
-                {
-                    "name": "cloud_water_mixing_ratio",
-                    "units": "kg kg^-1",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [0.0001, 0.0002, 0.0000, 0.0001],
-                },
-                {
-                    "name": "rain_water_mixing_ratio",
-                    "units": "kg kg^-1",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [0.0000, 0.0001, 0.0002, 0.0001],
-                },
-                {
-                    "name": "total_condensate",
-                    "units": "kg kg^-1",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [0.0001, 0.0003, 0.0002, 0.0002],
-                },
-                {
-                    "name": "column_cloud_water",
-                    "units": "kg m^-2",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [0.2, 0.3, 0.1, 0.2],
-                },
-                {
-                    "name": "column_rain_water",
-                    "units": "kg m^-2",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [0.0, 0.2, 0.4, 0.3],
-                },
-                {
-                    "name": "column_total_condensate",
-                    "units": "kg m^-2",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [0.2, 0.5, 0.5, 0.5],
-                },
-                {
-                    "name": "column_rain_fraction",
-                    "units": "1",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [0.0, 0.4, 0.8, 0.6],
-                },
-                {
-                    "name": "synthetic_reflectivity",
-                    "units": "dBZ",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [-20.0, 12.0, 24.0, 18.0],
-                },
-                {
-                    "name": "accumulated_surface_precipitation",
-                    "units": "mm",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [0.0, 0.001, 0.001, 0.0],
-                },
-                {
-                    "name": "mean_surface_precipitation_rate",
-                    "units": "mm h^-1",
-                    "location": "cell_center",
-                    "nx": 2,
-                    "ny": 2,
-                    "storage": "row_major_yx",
-                    "values": [0.0, 1.8, 1.8, 0.0],
-                }
-            ],
-        }
-
-        map_manifest = {
-            "schema_version": "gwm-next-map-manifest/v1",
-            "generated_at_utc": utc_now(),
-            "input_plan_view_path": str(bundle_dir / "runtime_plan_view.json"),
-            "case": "source_run_smoke",
-            "slice_k": 0,
-            "grid": {"nx": 2, "ny": 2},
-            "images": [
-                {
-                    "field": "rho_d",
-                    "units": "kg m^-3",
-                    "path": str(image_path.resolve()),
-                    "format": "png",
-                },
-                {
-                    "field": "specific_humidity",
-                    "units": "kg kg^-1",
-                    "path": str(qv_image_path.resolve()),
-                    "format": "png",
-                },
-                {
-                    "field": "synthetic_reflectivity",
-                    "units": "dBZ",
-                    "path": str(refl_image_path.resolve()),
-                    "format": "png",
-                },
-                {
-                    "field": "accumulated_surface_precipitation",
-                    "units": "mm",
-                    "path": str(precip_image_path.resolve()),
-                    "format": "png",
-                }
-            ],
-        }
-
         checkpoint_stub = {
             "schema_version": "gwm-next-checkpoint-stub/v1",
             "restart_family": "gwm-native-checkpoint",
@@ -514,77 +225,91 @@ def main() -> None:
         write_json(bundle_dir / "boundary_cache.json", boundary_cache)
         write_json(bundle_dir / "checkpoint_stub.json", checkpoint_stub)
         write_json(bundle_dir / "product_plan.json", product_plan)
-        write_json(bundle_dir / "runtime_summary.json", summary)
-        write_json(bundle_dir / "runtime_plan_view.json", plan_view)
-        write_json(bundle_dir / "plan_view_maps" / "map_manifest.json", map_manifest)
 
         subprocess.run(
             [
                 sys.executable,
-                str(verifier),
-                "--input",
-                str(bundle_dir),
-                "--kind",
-                "source_run_bundle",
-            ],
-            cwd=repo_root,
-            check=True,
-        )
-
-        subprocess.run(
-            [
-                sys.executable,
-                str(verifier),
-                "--input",
+                str(runner),
+                "--prepared-case",
                 str(bundle_dir / "prepared_case_manifest.json"),
+                "--steps",
+                "1",
+                "--dt",
+                "2.0",
+                "--fast-substeps",
+                "2",
+                "--cuda-launch-blocking",
+                "0",
+                "--render-maps",
             ],
             cwd=repo_root,
             check=True,
         )
 
-        subprocess.run(
-            [
-                sys.executable,
-                str(verifier),
-                "--input",
-                str(bundle_dir / "analysis_state.json"),
-            ],
-            cwd=repo_root,
-            check=True,
-        )
+        for artifact in (
+            bundle_dir,
+            bundle_dir / "prepared_case_manifest.json",
+            bundle_dir / "analysis_state.json",
+            bundle_dir / "boundary_cache.json",
+            bundle_dir / "summary.json",
+            bundle_dir / "plan_view.json",
+            bundle_dir / "map_manifest.json",
+        ):
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(verifier),
+                    "--input",
+                    str(artifact),
+                    "--kind",
+                    "source_run_bundle" if artifact == bundle_dir else "auto",
+                ],
+                cwd=repo_root,
+                check=True,
+            )
 
-        subprocess.run(
-            [
-                sys.executable,
-                str(verifier),
-                "--input",
-                str(bundle_dir / "boundary_cache.json"),
-            ],
-            cwd=repo_root,
-            check=True,
-        )
+        summary = json.loads((bundle_dir / "summary.json").read_text(encoding="utf-8"))
+        final_moisture = summary.get("final", {}).get("moisture", {})
+        required_moisture_keys = {
+            "vapor_water_path_sum_kg_m2",
+            "cloud_water_path_sum_kg_m2",
+            "rain_water_path_sum_kg_m2",
+            "condensed_water_path_sum_kg_m2",
+            "total_water_path_sum_kg_m2",
+            "accumulated_surface_precipitation_sum_mm",
+        }
+        missing_keys = required_moisture_keys.difference(final_moisture.keys())
+        if missing_keys:
+            raise RuntimeError(
+                "summary.json is missing expected final moisture keys: "
+                + ", ".join(sorted(missing_keys))
+            )
 
-        subprocess.run(
-            [
-                sys.executable,
-                str(verifier),
-                "--input",
-                str(bundle_dir / "runtime_summary.json"),
-            ],
-            cwd=repo_root,
-            check=True,
-        )
+        plan_view = json.loads((bundle_dir / "plan_view.json").read_text(encoding="utf-8"))
+        field_names = {
+            str(field.get("name", ""))
+            for field in plan_view.get("fields", [])
+            if field.get("name")
+        }
+        required_fields = {
+            "specific_humidity",
+            "relative_humidity",
+            "dewpoint",
+            "air_temperature",
+            "air_pressure",
+        }
+        missing_fields = required_fields.difference(field_names)
+        if missing_fields:
+            raise RuntimeError(
+                "plan_view.json is missing expected runtime fields: "
+                + ", ".join(sorted(missing_fields))
+            )
 
-        subprocess.run(
-            [
-                sys.executable,
-                str(verifier),
-                "--input",
-                str(bundle_dir / "runtime_plan_view.json"),
-            ],
-            cwd=repo_root,
-            check=True,
+        map_manifest = json.loads(
+            (bundle_dir / "map_manifest.json").read_text(encoding="utf-8")
         )
+        if not map_manifest.get("images"):
+            raise RuntimeError("map_manifest.json contains no rendered images")
 
         subprocess.run(
             [

@@ -75,6 +75,16 @@ name while allowing the runtime tracer set to grow to:
 - `cloud_water_mixing_ratio`
 - `rain_water_mixing_ratio`
 
+For deeper source-driven columns, the populate step may:
+
+- expand a legacy short pressure-level request into a deeper source-side
+  pressure stack before vertical remap
+- preserve the manifest `z_top` as the runtime target top instead of silently
+  inflating it from source heights
+- precondition supersaturated source humidity into initial
+  `cloud_water_mixing_ratio` at the populate edge so the runtime does not take
+  the entire condensation shock in the first timestep
+
 The `water_vapor_mixing_ratio` alias remains acceptable only at the source
 decode / ingest edge while the bridge is still being tightened.
 
@@ -106,6 +116,8 @@ with moisture diagnostics derived from the populated analysis humidity field.
 - warm-rain summary sidecars are proof/report artifacts, not restart truth
 - the source-run bundle should be stable enough to support first real maps
   before full moist physics lands
+- populated metadata should record both the requested and actual source
+  pressure-level stack used for remap
 
 ## Test Mapping
 
@@ -116,4 +128,5 @@ with moisture diagnostics derived from the populated analysis humidity field.
 - `tests/regression/test_warm_rain_summary_closure.cpp`
 - `tools/verify/run_verification.py`
 - `tools/verify/test_source_run_bundle.py`
+- `tools/verify/test_populate_prepared_case.py`
 - `tools/verify/render_plan_view_maps.py`

@@ -64,15 +64,15 @@ def numeric_leaf_paths(value: Any, prefix: str = "") -> list[tuple[str, float]]:
     return leaves
 
 
-def summary_tracer_total(summary_payload: dict[str, Any], name: str) -> float | None:
+def summary_tracer_path_sum(summary_payload: dict[str, Any], name: str) -> float | None:
     tracers = summary_payload.get("tracers", {})
     if not isinstance(tracers, dict):
         return None
     tracer_payload = tracers.get(name, {})
     if not isinstance(tracer_payload, dict):
         return None
-    total_mass = tracer_payload.get("total_mass")
-    return float(total_mass) if is_finite_number(total_mass) else None
+    total_path = tracer_payload.get("column_integrated_sum_kg_m2")
+    return float(total_path) if is_finite_number(total_path) else None
 
 
 def summarize_plan_view_field(payload: dict[str, Any], field_name: str) -> dict[str, float] | None:
@@ -91,6 +91,17 @@ def summarize_plan_view_field(payload: dict[str, Any], field_name: str) -> dict[
             "mean": total / float(len(numeric_values)),
             "max": max(numeric_values),
         }
+    return None
+
+
+def plan_view_field_values(payload: dict[str, Any], field_name: str) -> list[float] | None:
+    for field in payload.get("fields", []):
+        if str(field.get("name", "")) != field_name:
+            continue
+        values = field.get("values", [])
+        if not all_finite(values):
+            return None
+        return [float(value) for value in values]
     return None
 
 
@@ -534,6 +545,12 @@ def verify_source_run_bundle(path: Path) -> dict[str, Any]:
             rate_field = summarize_plan_view_field(
                 plan_view_payload, "mean_surface_precipitation_rate"
             )
+            accumulated_values = plan_view_field_values(
+                plan_view_payload, "accumulated_surface_precipitation"
+            )
+            rate_values = plan_view_field_values(
+                plan_view_payload, "mean_surface_precipitation_rate"
+            )
             plan_view_fields = {
                 str(field.get("name", ""))
                 for field in plan_view_payload.get("fields", [])
@@ -591,7 +608,16 @@ def verify_source_run_bundle(path: Path) -> dict[str, Any]:
                         )
                         <= 1.0e-6
                     )
-                if float(final_moisture.get("rain_water_mass", 0.0)) > 0.0:
+                    if accumulated_values is not None and rate_values is not None:
+                        summary_plan_view_consistent = (
+                            summary_plan_view_consistent
+                            and len(accumulated_values) == len(rate_values)
+                            and all(
+                                abs(rate - accum / elapsed_hours) <= 1.0e-6
+                                for accum, rate in zip(accumulated_values, rate_values)
+                            )
+                        )
+                if float(final_moisture.get("condensed_water_path_sum_kg_m2", 0.0)) > 0.0:
                     summary_plan_view_consistent = summary_plan_view_consistent and all(
                         field_name in plan_view_fields
                         for field_name in (
@@ -612,6 +638,16 @@ def verify_source_run_bundle(path: Path) -> dict[str, Any]:
                 "plan_view_fields": sorted(plan_view_fields),
                 "accumulated_surface_precipitation": accumulated_field,
                 "mean_surface_precipitation_rate": rate_field,
+                "cellwise_rate_matches_accumulation": (
+                    accumulated_values is not None
+                    and rate_values is not None
+                    and elapsed_hours > 0.0
+                    and len(accumulated_values) == len(rate_values)
+                    and all(
+                        abs(rate - accum / elapsed_hours) <= 1.0e-6
+                        for accum, rate in zip(accumulated_values, rate_values)
+                    )
+                ),
                 "final_moisture": final_moisture,
             }
 
@@ -902,11 +938,11 @@ def verify_runtime_summary(path: Path, payload: dict[str, Any]) -> dict[str, Any
         elapsed_seconds = float(payload.get("steps", 0)) * float(payload.get("dt", 0.0))
 
     moisture_fields = (
-        "vapor_water_mass",
-        "cloud_water_mass",
-        "rain_water_mass",
-        "condensed_water_mass",
-        "total_water_mass",
+        "vapor_water_path_sum_kg_m2",
+        "cloud_water_path_sum_kg_m2",
+        "rain_water_path_sum_kg_m2",
+        "condensed_water_path_sum_kg_m2",
+        "total_water_path_sum_kg_m2",
         "accumulated_surface_precipitation_sum_mm",
         "mean_surface_precipitation_mm",
         "max_surface_precipitation_mm",
@@ -940,22 +976,44 @@ def verify_runtime_summary(path: Path, payload: dict[str, Any]) -> dict[str, Any
             )
         else:
             moisture_details.append({"label": label, "missing_fields": list(moisture_fields)})
-        tracer_qv = summary_tracer_total(summary_payload, "specific_humidity")
-        tracer_qc = summary_tracer_total(summary_payload, "cloud_water_mixing_ratio")
-        tracer_qr = summary_tracer_total(summary_payload, "rain_water_mixing_ratio")
+        tracer_qv = summary_tracer_path_sum(summary_payload, "specific_humidity")
+        tracer_qc = summary_tracer_path_sum(summary_payload, "cloud_water_mixing_ratio")
+        tracer_qr = summary_tracer_path_sum(summary_payload, "rain_water_mixing_ratio")
         if isinstance(moisture, dict):
-            if tracer_qv is not None and is_finite_number(moisture.get("vapor_water_mass")):
+            if tracer_qv is not None and is_finite_number(moisture.get("vapor_water_path_sum_kg_m2")):
                 tracer_consistency = tracer_consistency and (
-                    abs(float(moisture["vapor_water_mass"]) - tracer_qv) <= 1.0e-6
+                    abs(float(moisture["vapor_water_path_sum_kg_m2"]) - tracer_qv) <= 1.0e-6
                 )
-            if tracer_qc is not None and is_finite_number(moisture.get("cloud_water_mass")):
+            if tracer_qc is not None and is_finite_number(moisture.get("cloud_water_path_sum_kg_m2")):
                 tracer_consistency = tracer_consistency and (
-                    abs(float(moisture["cloud_water_mass"]) - tracer_qc) <= 1.0e-6
+                    abs(float(moisture["cloud_water_path_sum_kg_m2"]) - tracer_qc) <= 1.0e-6
                 )
-            if tracer_qr is not None and is_finite_number(moisture.get("rain_water_mass")):
+            if tracer_qr is not None and is_finite_number(moisture.get("rain_water_path_sum_kg_m2")):
                 tracer_consistency = tracer_consistency and (
-                    abs(float(moisture["rain_water_mass"]) - tracer_qr) <= 1.0e-6
+                    abs(float(moisture["rain_water_path_sum_kg_m2"]) - tracer_qr) <= 1.0e-6
                 )
+
+    water_path_budget_consistent = False
+    water_path_detail: dict[str, Any] = {}
+    if isinstance(final_moisture, dict) and all(
+        key in final_moisture for key in moisture_fields[:5]
+    ):
+        vapor_path = float(final_moisture["vapor_water_path_sum_kg_m2"])
+        cloud_path = float(final_moisture["cloud_water_path_sum_kg_m2"])
+        rain_path = float(final_moisture["rain_water_path_sum_kg_m2"])
+        condensed_path = float(final_moisture["condensed_water_path_sum_kg_m2"])
+        total_path = float(final_moisture["total_water_path_sum_kg_m2"])
+        water_path_budget_consistent = (
+            abs(condensed_path - (cloud_path + rain_path)) <= 1.0e-6
+            and abs(total_path - (vapor_path + condensed_path)) <= 1.0e-6
+        )
+        water_path_detail = {
+            "vapor_path": vapor_path,
+            "cloud_path": cloud_path,
+            "rain_path": rain_path,
+            "condensed_path": condensed_path,
+            "total_path": total_path,
+        }
 
     precip_summary_consistent = False
     precip_detail: dict[str, Any] = {}
@@ -1055,6 +1113,11 @@ def verify_runtime_summary(path: Path, payload: dict[str, Any]) -> dict[str, Any
             "name": "tracer_moisture_consistent",
             "passed": tracer_consistency,
             "detail": {"checked_tracers": list(tracer_names)},
+        },
+        {
+            "name": "water_path_budget_consistent",
+            "passed": water_path_budget_consistent,
+            "detail": water_path_detail,
         },
         {
             "name": "precipitation_summary_consistent",

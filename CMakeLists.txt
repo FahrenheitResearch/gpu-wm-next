@@ -25,6 +25,7 @@ enable_testing()
 
 find_package(CUDAToolkit REQUIRED)
 find_package(MPI QUIET COMPONENTS CXX)
+find_package(Python3 QUIET COMPONENTS Interpreter)
 
 add_library(
   gwm_core
@@ -106,6 +107,7 @@ gwm_add_test(test_source_catalog tests/unit/test_source_catalog.cpp)
 gwm_add_test(test_ingest_contracts tests/unit/test_ingest_contracts.cpp)
 gwm_add_test(test_runtime_case tests/unit/test_runtime_case.cpp)
 gwm_add_test(test_runtime_summary tests/unit/test_runtime_summary.cpp)
+gwm_add_test(test_moist_thermo tests/unit/test_moist_thermo.cpp)
 gwm_add_test(test_prepared_case_init tests/unit/test_prepared_case_init.cpp)
 gwm_add_test(test_plan_view_output tests/unit/test_plan_view_output.cpp)
 gwm_add_test(
@@ -198,6 +200,20 @@ if(GWM_ENABLE_MPI AND MPI_CXX_FOUND AND MPIEXEC_EXECUTABLE
     tests/property/test_mpi_halo_virtual_rank_equivalence.cpp
   )
 endif()
+
+if(Python3_Interpreter_FOUND)
+  add_test(
+    NAME test_populate_prepared_case_python
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/verify/test_populate_prepared_case.py
+  )
+  add_test(
+    NAME test_source_run_bundle_python
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/verify/test_source_run_bundle.py
+  )
+endif()
+
 gwm_add_test(test_constant_state tests/regression/test_constant_state.cpp)
 gwm_add_test(
   test_dry_constant_state_bundle

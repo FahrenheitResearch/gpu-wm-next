@@ -15,6 +15,24 @@ using gwm::state::kCloudWaterTracerName;
 using gwm::state::kRainWaterTracerName;
 using gwm::state::kSpecificHumidityTracerName;
 
+double tracer_column_integrated_sum_kg_m2(
+    const state::TracerState& tracer_state,
+    const domain::SubdomainDescriptor& desc, const domain::GridMetrics& metrics,
+    int tracer_index) {
+  double total = 0.0;
+  const auto& rho_q = tracer_state.mass(tracer_index);
+  for (int k = 0; k < desc.nz; ++k) {
+    for (int j = 0; j < desc.ny_local(); ++j) {
+      for (int i = 0; i < desc.nx_local(); ++i) {
+        const double dz = 1.0 / static_cast<double>(
+            metrics.inv_dz_cell(desc.i_begin + i, desc.j_begin + j, k));
+        total += static_cast<double>(rho_q(i, j, k)) * dz;
+      }
+    }
+  }
+  return total;
+}
+
 __global__ void warm_rain_kernel(
     const real* rho_d, real* rho_theta_m, real* rho_qv, real* rho_qc,
     real* rho_qr, int nx, int ny, int nz, int halo, real dt,
@@ -282,6 +300,10 @@ void apply_warm_rain_microphysics(
 
   dim3 block(8, 8, 4);
   dim3 column_block(8, 8, 1);
+  std::vector<state::Field3D<real>> rain_fallout_scratch;
+  if (accumulations != nullptr && config.rain_terminal_velocity > 0.0f) {
+    rain_fallout_scratch.reserve(states.size());
+  }
   for (std::size_t n = 0; n < states.size(); ++n) {
     auto& state = states[n];
     auto& tracer = tracers[n];
@@ -302,9 +324,17 @@ void apply_warm_rain_microphysics(
         config.cloud_autoconversion_threshold, config.cloud_autoconversion_rate,
         config.rain_evaporation_rate, config.enable_latent_heating);
     GWM_CUDA_CHECK(cudaGetLastError());
+  }
+  GWM_CUDA_CHECK(cudaDeviceSynchronize());
 
+  for (std::size_t n = 0; n < states.size(); ++n) {
+    auto& state = states[n];
+    auto& tracer = tracers[n];
+    const auto qr_index = *tracer.find(kRainWaterTracerName);
     if (accumulations != nullptr && config.rain_terminal_velocity > 0.0f) {
-      auto qr_old = tracer.mass(qr_index).clone_empty_like("_qr_old");
+      rain_fallout_scratch.push_back(
+          tracer.mass(qr_index).clone_empty_like("_qr_old"));
+      auto& qr_old = rain_fallout_scratch.back();
       qr_old.copy_all_from(tracer.mass(qr_index));
       dim3 column_grid((state.rho_d.nx() + column_block.x - 1) / column_block.x,
                        (state.rho_d.ny() + column_block.y - 1) / column_block.y,
@@ -324,20 +354,29 @@ void apply_warm_rain_microphysics(
 
 WarmRainSummary summarize_warm_rain(
     const std::vector<state::TracerState>& tracers,
+    const std::vector<domain::SubdomainDescriptor>& layout,
+    const domain::GridMetrics& metrics,
     const std::vector<WarmRainSurfaceAccumulation>* accumulations) {
+  gwm::require(tracers.size() == layout.size(),
+               "Tracer/layout size mismatch in summarize_warm_rain");
   WarmRainSummary summary{};
-  for (const auto& tracer : tracers) {
+  for (std::size_t n = 0; n < tracers.size(); ++n) {
+    const auto& tracer = tracers[n];
+    const auto& desc = layout[n];
     if (const auto qv_index = tracer.find(kSpecificHumidityTracerName);
         qv_index.has_value()) {
-      summary.total_water_vapor_mass += tracer.total_mass(*qv_index);
+      summary.vapor_water_path_sum_kg_m2 += tracer_column_integrated_sum_kg_m2(
+          tracer, desc, metrics, *qv_index);
     }
     if (const auto qc_index = tracer.find(kCloudWaterTracerName);
         qc_index.has_value()) {
-      summary.total_cloud_water_mass += tracer.total_mass(*qc_index);
+      summary.cloud_water_path_sum_kg_m2 += tracer_column_integrated_sum_kg_m2(
+          tracer, desc, metrics, *qc_index);
     }
     if (const auto qr_index = tracer.find(kRainWaterTracerName);
         qr_index.has_value()) {
-      summary.total_rain_water_mass += tracer.total_mass(*qr_index);
+      summary.rain_water_path_sum_kg_m2 += tracer_column_integrated_sum_kg_m2(
+          tracer, desc, metrics, *qr_index);
     }
   }
   if (accumulations != nullptr) {
@@ -367,12 +406,12 @@ std::string warm_rain_summary_to_json(const WarmRainSummary& summary,
                                       const std::string& indent) {
   std::ostringstream oss;
   oss << indent << "{\n";
-  oss << indent << "  \"total_water_vapor_mass\": "
-      << summary.total_water_vapor_mass << ",\n";
-  oss << indent << "  \"total_cloud_water_mass\": "
-      << summary.total_cloud_water_mass << ",\n";
-  oss << indent << "  \"total_rain_water_mass\": "
-      << summary.total_rain_water_mass << ",\n";
+  oss << indent << "  \"vapor_water_path_sum_kg_m2\": "
+      << summary.vapor_water_path_sum_kg_m2 << ",\n";
+  oss << indent << "  \"cloud_water_path_sum_kg_m2\": "
+      << summary.cloud_water_path_sum_kg_m2 << ",\n";
+  oss << indent << "  \"rain_water_path_sum_kg_m2\": "
+      << summary.rain_water_path_sum_kg_m2 << ",\n";
   oss << indent << "  \"accumulated_surface_precipitation_sum_mm\": "
       << summary.accumulated_surface_precipitation_sum_mm << ",\n";
   oss << indent << "  \"mean_surface_precipitation_mm\": "

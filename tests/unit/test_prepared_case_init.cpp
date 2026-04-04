@@ -151,5 +151,32 @@ int main() {
   boundary_updater.apply(states, layout, 0.0f);
   TEST_NEAR(states[0].mom_u.storage()(0, 0, 0), expected_rho * 2.0f, 1.0e-4f);
 
+  auto boundary_warm_rain_tracers = make_warm_rain_tracers_from_analysis(
+      analysis, states, layout, "prepared_case_boundary_warm_rain");
+  auto& qv = boundary_warm_rain_tracers[0].mass(gwm::state::kSpecificHumidityTracerName);
+  auto& qc = boundary_warm_rain_tracers[0].mass(gwm::state::kCloudWaterTracerName);
+  auto& qr = boundary_warm_rain_tracers[0].mass(gwm::state::kRainWaterTracerName);
+  qv(0, 0, 0) = 0.0f;
+  qc(0, 0, 0) = 0.020f;
+  qr(0, 0, 0) = 0.010f;
+
+  PreparedCaseTracerBoundaryUpdater tracer_boundary_updater(
+      make_analysis(), make_boundary_cache(), config);
+  tracer_boundary_updater.set_step_start_time(1800.0f);
+  tracer_boundary_updater.apply(boundary_warm_rain_tracers, layout, 0.0f);
+
+  TEST_NEAR(
+      boundary_warm_rain_tracers[0]
+          .mass(gwm::state::kSpecificHumidityTracerName)(0, 0, 0),
+      expected_rho * 0.005f, 1.0e-5f);
+  TEST_NEAR(
+      boundary_warm_rain_tracers[0]
+          .mass(gwm::state::kCloudWaterTracerName)(0, 0, 0),
+      0.020f, 1.0e-6f);
+  TEST_NEAR(
+      boundary_warm_rain_tracers[0]
+          .mass(gwm::state::kRainWaterTracerName)(0, 0, 0),
+      0.010f, 1.0e-6f);
+
   return 0;
 }
